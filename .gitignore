@@ -1,0 +1,14 @@
+# Start Generation Here
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.env
+*.venv
+*.egg-info/
+dist/
+build/
+*.log
+*.sqlite3
+*.db
+venv/
