@@ -12,3 +12,5 @@ build/
 *.sqlite3
 *.db
 venv/
+.aider*
+.env
