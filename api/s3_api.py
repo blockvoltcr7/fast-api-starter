@@ -44,24 +44,20 @@ async def list_buckets():
     except ClientError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/buckets/create-with-object", status_code=201)
-async def create_bucket_with_object(
+@app.post("/buckets/create", status_code=201)
+async def create_bucket(
     bucket_name: Optional[str] = None, 
-    region: Optional[str] = "us-east-1", 
-    file: UploadFile = File(...),
-    object_key: Optional[str] = None
+    region: Optional[str] = "us-east-1"
 ):
     """
-    Create a new S3 bucket and upload an object in a single operation
+    Create a new S3 bucket
 
     Args:
         bucket_name: Name of the bucket to create (optional, will generate if not provided)
         region: AWS region where the bucket should be created (default: us-east-1)
-        file: File to upload to the bucket
-        object_key: Optional custom object key (will generate if not provided)
 
     Returns:
-        dict: Information about the created bucket and uploaded object
+        dict: Information about the created bucket
     """
     s3_client = boto3.client("s3")
 
@@ -76,10 +72,6 @@ async def create_bucket_with_object(
             detail="Invalid bucket name. Must be 3-63 characters, lowercase, alphanumeric or hyphens."
         )
 
-    # Generate object key if not provided
-    if not object_key:
-        object_key = f"uploads/{uuid.uuid4().hex}"
-
     try:
         # Create bucket
         if region == "us-east-1":
@@ -90,25 +82,10 @@ async def create_bucket_with_object(
                 Bucket=bucket_name, CreateBucketConfiguration=location
             )
 
-        # Upload file
-        file_content = await file.read()
-        s3_client.put_object(
-            Bucket=bucket_name, 
-            Key=object_key, 
-            Body=file_content,
-            ContentType=file.content_type
-        )
-
         return {
-            "message": "Bucket created and object uploaded successfully",
+            "message": "Bucket created successfully",
             "bucket_name": bucket_name,
-            "region": region,
-            "object_key": object_key,
-            "file_details": {
-                "filename": file.filename,
-                "content_type": file.content_type,
-                "size": len(file_content)
-            }
+            "region": region
         }
 
     except ClientError as e:
