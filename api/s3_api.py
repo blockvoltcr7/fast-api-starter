@@ -1,20 +1,21 @@
-from typing import List, Optional, Dict, Any
+import uuid
 from io import BytesIO
+from typing import Any, Dict, List, Optional
 
 import boto3
 from botocore.exceptions import ClientError
-from fastapi import FastAPI, HTTPException, UploadFile, File
-import uuid
+from fastapi import FastAPI, File, HTTPException, UploadFile
 
 app = FastAPI(title="S3 Bucket API")
+
 
 def validate_bucket_name(bucket_name: str) -> bool:
     """
     Validate S3 bucket name according to AWS rules
-    
+
     Args:
         bucket_name (str): Proposed bucket name
-    
+
     Returns:
         bool: Whether the bucket name is valid
     """
@@ -23,9 +24,10 @@ def validate_bucket_name(bucket_name: str) -> bool:
         return False
     if not bucket_name.islower():
         return False
-    if not bucket_name.replace('-', '').isalnum():
+    if not bucket_name.replace("-", "").isalnum():
         return False
     return True
+
 
 @app.get("/buckets/", status_code=200)
 async def list_buckets():
@@ -44,10 +46,10 @@ async def list_buckets():
     except ClientError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.post("/buckets/create", status_code=201)
 async def create_bucket(
-    bucket_name: Optional[str] = None, 
-    region: Optional[str] = "us-east-1"
+    bucket_name: Optional[str] = None, region: Optional[str] = "us-east-1"
 ):
     """
     Create a new S3 bucket
@@ -64,12 +66,12 @@ async def create_bucket(
     # Generate bucket name if not provided
     if not bucket_name:
         bucket_name = f"bucket-{uuid.uuid4().hex[:8]}"
-    
+
     # Validate bucket name
     if not validate_bucket_name(bucket_name):
         raise HTTPException(
-            status_code=400, 
-            detail="Invalid bucket name. Must be 3-63 characters, lowercase, alphanumeric or hyphens."
+            status_code=400,
+            detail="Invalid bucket name. Must be 3-63 characters, lowercase, alphanumeric or hyphens.",
         )
 
     try:
@@ -85,7 +87,7 @@ async def create_bucket(
         return {
             "message": "Bucket created successfully",
             "bucket_name": bucket_name,
-            "region": region
+            "region": region,
         }
 
     except ClientError as e:
