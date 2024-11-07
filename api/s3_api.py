@@ -102,3 +102,66 @@ async def create_bucket(
             )
         else:
             raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/buckets/create-with-folder", status_code=201)
+async def create_bucket_with_folder(
+    bucket_name: Optional[str] = None, 
+    region: Optional[str] = "us-east-1", 
+    folder_name: Optional[str] = "new-folder/"
+):
+    """
+    Create a new S3 bucket with an initial folder
+
+    Args:
+        bucket_name: Name of the bucket to create (optional, will generate if not provided)
+        region: AWS region where the bucket should be created (default: us-east-1)
+        folder_name: Name of the initial folder to create (default: 'new-folder/')
+
+    Returns:
+        dict: Information about the created bucket and folder
+    """
+    s3_client = boto3.client("s3")
+
+    # Generate bucket name if not provided
+    if not bucket_name:
+        bucket_name = f"bucket-{uuid.uuid4().hex[:8]}"
+
+    # Validate bucket name
+    if not validate_bucket_name(bucket_name):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid bucket name. Must be 3-63 characters, lowercase, alphanumeric or hyphens.",
+        )
+
+    try:
+        # Create bucket
+        if region == "us-east-1":
+            s3_client.create_bucket(Bucket=bucket_name)
+        else:
+            location = {"LocationConstraint": region}
+            s3_client.create_bucket(
+                Bucket=bucket_name, CreateBucketConfiguration=location
+            )
+
+        # Create an empty folder (using a zero-byte object with a trailing slash)
+        s3_client.put_object(Bucket=bucket_name, Key=folder_name, Body=b'')
+
+        return {
+            "message": "Bucket and folder created successfully",
+            "bucket_name": bucket_name,
+            "region": region,
+            "folder_name": folder_name,
+        }
+
+    except ClientError as e:
+        error_code = e.response["Error"]["Code"]
+        if error_code == "BucketAlreadyExists":
+            raise HTTPException(
+                status_code=409, detail=f"Bucket {bucket_name} already exists"
+            )
+        elif error_code == "BucketAlreadyOwnedByYou":
+            raise HTTPException(
+                status_code=409, detail=f"Bucket {bucket_name} already owned by you"
+            )
+        else:
+            raise HTTPException(status_code=500, detail=str(e))
