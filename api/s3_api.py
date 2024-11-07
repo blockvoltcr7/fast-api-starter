@@ -1,21 +1,22 @@
 import uuid
+from datetime import timedelta
 from io import BytesIO
 from typing import Any, Dict, List, Optional
 
 import boto3
 from botocore.exceptions import ClientError
-from fastapi import FastAPI, File, HTTPException, UploadFile, Depends
+from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.security import OAuth2PasswordRequestForm
 
 from auth.jwt_auth import (
-    create_access_token, 
-    authenticate_user, 
-    get_current_user, 
-    ACCESS_TOKEN_EXPIRE_MINUTES
+    ACCESS_TOKEN_EXPIRE_MINUTES,
+    authenticate_user,
+    create_access_token,
+    get_current_user,
 )
-from datetime import timedelta
 
 app = FastAPI(title="S3 Bucket API")
+
 
 @app.post("/token")
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
@@ -24,10 +25,7 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
     """
     user = authenticate_user(form_data.username, form_data.password)
     if not user:
-        raise HTTPException(
-            status_code=400, 
-            detail="Incorrect username or password"
-        )
+        raise HTTPException(status_code=400, detail="Incorrect username or password")
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={"sub": user.username}, expires_delta=access_token_expires
@@ -75,9 +73,9 @@ async def list_buckets(current_user: dict = Depends(get_current_user)):
 
 @app.post("/buckets/create", status_code=201)
 async def create_bucket(
-    bucket_name: Optional[str] = None, 
+    bucket_name: Optional[str] = None,
     region: Optional[str] = "us-east-1",
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """
     Create a new S3 bucket
@@ -131,11 +129,9 @@ async def create_bucket(
         else:
             raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.get("/buckets/{bucket_name}", status_code=200)
-async def get_bucket(
-    bucket_name: str, 
-    current_user: dict = Depends(get_current_user)
-):
+async def get_bucket(bucket_name: str, current_user: dict = Depends(get_current_user)):
     """
     Get information about a specific S3 bucket
 
@@ -157,33 +153,32 @@ async def get_bucket(
     try:
         # Check if bucket exists by attempting to get its location
         location = s3_client.get_bucket_location(Bucket=bucket_name)
-        
+
         return {
             "message": "Bucket found successfully",
             "bucket_name": bucket_name,
-            "region": location['LocationConstraint'] or 'us-east-1'
+            "region": location["LocationConstraint"] or "us-east-1",
         }
     except s3_client.exceptions.NoSuchBucket:
         raise HTTPException(
-            status_code=404, 
-            detail=f"Bucket {bucket_name} does not exist"
+            status_code=404, detail=f"Bucket {bucket_name} does not exist"
         )
     except ClientError as e:
         error_code = e.response["Error"]["Code"]
         if error_code == "AccessDenied":
             raise HTTPException(
-                status_code=403, 
-                detail=f"Access denied for bucket {bucket_name}"
+                status_code=403, detail=f"Access denied for bucket {bucket_name}"
             )
         else:
             raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.post("/buckets/create-with-folder", status_code=201)
 async def create_bucket_with_folder(
-    bucket_name: Optional[str] = None, 
-    region: Optional[str] = "us-east-1", 
+    bucket_name: Optional[str] = None,
+    region: Optional[str] = "us-east-1",
     folder_name: Optional[str] = "new-folder/",
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """
     Create a new S3 bucket with an initial folder
@@ -220,7 +215,7 @@ async def create_bucket_with_folder(
             )
 
         # Create an empty folder (using a zero-byte object with a trailing slash)
-        s3_client.put_object(Bucket=bucket_name, Key=folder_name, Body=b'')
+        s3_client.put_object(Bucket=bucket_name, Key=folder_name, Body=b"")
 
         return {
             "message": "Bucket and folder created successfully",

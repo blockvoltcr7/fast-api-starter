@@ -1,15 +1,15 @@
 from datetime import datetime, timedelta
 from typing import Optional
 
+import bcrypt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from jose import jwt, JWTError
-import bcrypt
+from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel
 
 # JWT Configuration
-SECRET_KEY = "your-secret-key"  # Replace with a strong, randomly generated secret
+SECRET_KEY = "328942$#@!@#$%^&*()_+"  # Replace with a strong, randomly generated secret
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
@@ -17,20 +17,27 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 30
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
+
 class User(BaseModel):
     username: str
     disabled: Optional[bool] = None
 
+
 class UserInDB(User):
     hashed_password: str
 
+
 def verify_password(plain_password, hashed_password):
     # Use bcrypt's built-in checkpw method
-    return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
+    return bcrypt.checkpw(
+        plain_password.encode("utf-8"), hashed_password.encode("utf-8")
+    )
+
 
 def get_password_hash(password):
     # Use bcrypt's hashpw method
-    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     """
@@ -44,6 +51,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
+
 
 def get_current_user(token: str = Depends(oauth2_scheme)):
     """
@@ -61,18 +69,20 @@ def get_current_user(token: str = Depends(oauth2_scheme)):
             raise credentials_exception
     except JWTError:
         raise credentials_exception
-    
+
     # In a real app, you'd fetch the user from a database here
     return User(username=username)
+
 
 # Mock user database (replace with actual database in production)
 fake_users_db = {
     "testuser": {
         "username": "testuser",
         "hashed_password": get_password_hash("testpassword"),
-        "disabled": False
+        "disabled": False,
     }
 }
+
 
 def authenticate_user(username: str, password: str):
     """
@@ -81,6 +91,6 @@ def authenticate_user(username: str, password: str):
     user = fake_users_db.get(username)
     if not user:
         return False
-    if not verify_password(password, user['hashed_password']):
+    if not verify_password(password, user["hashed_password"]):
         return False
     return UserInDB(**user)
