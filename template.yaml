@@ -1,0 +1,36 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: S3 Bucket API Lambda
+
+Resources:
+  S3BucketAPI:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: lambda_handler.handler
+      Runtime: python3.8
+      Architectures:
+        - x86_64
+      Policies:
+        - S3CrudPolicy: {}  # Grants full S3 access
+      Events:
+        ListBucketsApi:
+          Type: HttpApi
+          Properties:
+            Path: /buckets/
+            Method: GET
+        CreateBucketApi:
+          Type: HttpApi
+          Properties:
+            Path: /buckets/create
+            Method: POST
+        CreateBucketWithFolderApi:
+          Type: HttpApi
+          Properties:
+            Path: /buckets/create-with-folder
+            Method: POST
+        GetBucketDetailsApi:
+          Type: HttpApi
+          Properties:
+            Path: /buckets/{bucket_name}
+            Method: GET
