@@ -1,9 +1,31 @@
 from fastapi import FastAPI, HTTPException
-from typing import Optional
+from typing import Optional, List
 import boto3
 from botocore.exceptions import ClientError
 
 app = FastAPI(title="S3 Bucket API")
+
+@app.get("/buckets/", status_code=200)
+async def list_buckets():
+    """
+    List all S3 buckets
+    
+    Returns:
+        dict: List of all buckets
+    """
+    s3_client = boto3.client('s3')
+    
+    try:
+        response = s3_client.list_buckets()
+        buckets = [bucket['Name'] for bucket in response['Buckets']]
+        return {
+            "buckets": buckets
+        }
+    except ClientError as e:
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
 
 @app.post("/buckets/", status_code=201)
 async def create_bucket(bucket_name: str, region: Optional[str] = "us-east-1"):
