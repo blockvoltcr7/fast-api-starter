@@ -59,10 +59,35 @@ This API provides endpoints for managing S3 buckets using AWS boto3 client.
   - `409 Conflict`: Bucket already exists
   - `500 Internal Server Error`: Unexpected AWS error
 
+### Get Bucket Details
+- **URL**: `/buckets/{bucket_name}`
+- **Method**: `GET`
+- **Path Parameters**:
+  - `bucket_name`: Name of the bucket to retrieve
+    - Must be 3-63 characters
+    - Lowercase alphanumeric or hyphens
+
+- **Responses**:
+  - `200 OK`: Bucket found successfully
+    ```json
+    {
+      "message": "Bucket found successfully",
+      "bucket_name": "example-bucket",
+      "region": "us-east-1"
+    }
+    ```
+  - `400 Bad Request`: Invalid bucket name
+  - `403 Forbidden`: Access denied to the bucket
+  - `404 Not Found`: Bucket does not exist
+  - `500 Internal Server Error`: Unexpected AWS error
+
 ## Example Curl Commands
 ```bash
 # Create bucket with auto-generated name
 curl -X POST "http://localhost:8000/buckets/create"
+
+# Get details of a specific bucket
+curl -X GET "http://localhost:8000/buckets/my-bucket-name"
 
 # Create bucket with custom name and region
 curl -X POST "http://localhost:8000/buckets/create?bucket_name=my-custom-bucket&region=us-west-2"

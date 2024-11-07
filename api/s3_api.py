@@ -103,6 +103,50 @@ async def create_bucket(
         else:
             raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/buckets/{bucket_name}", status_code=200)
+async def get_bucket(bucket_name: str):
+    """
+    Get information about a specific S3 bucket
+
+    Args:
+        bucket_name: Name of the bucket to retrieve
+
+    Returns:
+        dict: Information about the specified bucket
+    """
+    s3_client = boto3.client("s3")
+
+    # Validate bucket name
+    if not validate_bucket_name(bucket_name):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid bucket name. Must be 3-63 characters, lowercase, alphanumeric or hyphens.",
+        )
+
+    try:
+        # Check if bucket exists by attempting to get its location
+        location = s3_client.get_bucket_location(Bucket=bucket_name)
+        
+        return {
+            "message": "Bucket found successfully",
+            "bucket_name": bucket_name,
+            "region": location['LocationConstraint'] or 'us-east-1'
+        }
+    except s3_client.exceptions.NoSuchBucket:
+        raise HTTPException(
+            status_code=404, 
+            detail=f"Bucket {bucket_name} does not exist"
+        )
+    except ClientError as e:
+        error_code = e.response["Error"]["Code"]
+        if error_code == "AccessDenied":
+            raise HTTPException(
+                status_code=403, 
+                detail=f"Access denied for bucket {bucket_name}"
+            )
+        else:
+            raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/buckets/create-with-folder", status_code=201)
 async def create_bucket_with_folder(
     bucket_name: Optional[str] = None, 
