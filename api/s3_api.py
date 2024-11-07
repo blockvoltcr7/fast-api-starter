@@ -4,9 +4,35 @@ from typing import Any, Dict, List, Optional
 
 import boto3
 from botocore.exceptions import ClientError
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, UploadFile, Depends
+from fastapi.security import OAuth2PasswordRequestForm
+
+from auth.jwt_auth import (
+    create_access_token, 
+    authenticate_user, 
+    get_current_user, 
+    ACCESS_TOKEN_EXPIRE_MINUTES
+)
+from datetime import timedelta
 
 app = FastAPI(title="S3 Bucket API")
+
+@app.post("/token")
+async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
+    """
+    Generate JWT access token for authentication
+    """
+    user = authenticate_user(form_data.username, form_data.password)
+    if not user:
+        raise HTTPException(
+            status_code=400, 
+            detail="Incorrect username or password"
+        )
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.username}, expires_delta=access_token_expires
+    )
+    return {"access_token": access_token, "token_type": "bearer"}
 
 
 def validate_bucket_name(bucket_name: str) -> bool:
@@ -30,7 +56,7 @@ def validate_bucket_name(bucket_name: str) -> bool:
 
 
 @app.get("/buckets/", status_code=200)
-async def list_buckets():
+async def list_buckets(current_user: dict = Depends(get_current_user)):
     """
     List all S3 buckets
 
@@ -49,7 +75,9 @@ async def list_buckets():
 
 @app.post("/buckets/create", status_code=201)
 async def create_bucket(
-    bucket_name: Optional[str] = None, region: Optional[str] = "us-east-1"
+    bucket_name: Optional[str] = None, 
+    region: Optional[str] = "us-east-1",
+    current_user: dict = Depends(get_current_user)
 ):
     """
     Create a new S3 bucket
@@ -104,7 +132,10 @@ async def create_bucket(
             raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/buckets/{bucket_name}", status_code=200)
-async def get_bucket(bucket_name: str):
+async def get_bucket(
+    bucket_name: str, 
+    current_user: dict = Depends(get_current_user)
+):
     """
     Get information about a specific S3 bucket
 
@@ -151,7 +182,8 @@ async def get_bucket(bucket_name: str):
 async def create_bucket_with_folder(
     bucket_name: Optional[str] = None, 
     region: Optional[str] = "us-east-1", 
-    folder_name: Optional[str] = "new-folder/"
+    folder_name: Optional[str] = "new-folder/",
+    current_user: dict = Depends(get_current_user)
 ):
     """
     Create a new S3 bucket with an initial folder

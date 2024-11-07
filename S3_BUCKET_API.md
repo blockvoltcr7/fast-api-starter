@@ -81,19 +81,40 @@ This API provides endpoints for managing S3 buckets using AWS boto3 client.
   - `404 Not Found`: Bucket does not exist
   - `500 Internal Server Error`: Unexpected AWS error
 
+## Authentication
+
+The API uses JWT (JSON Web Token) for authentication.
+
+### Obtaining an Access Token
+```bash
+# Get access token
+curl -X POST "http://localhost:8000/token" \
+     -H "Content-Type: application/x-www-form-urlencoded" \
+     -d "username=testuser&password=testpassword"
+```
+
 ## Example Curl Commands
 ```bash
+# Get access token first
+TOKEN=$(curl -X POST "http://localhost:8000/token" \
+     -H "Content-Type: application/x-www-form-urlencoded" \
+     -d "username=testuser&password=testpassword" | jq -r .access_token)
+
 # Create bucket with auto-generated name
-curl -X POST "http://localhost:8000/buckets/create"
+curl -X POST "http://localhost:8000/buckets/create" \
+     -H "Authorization: Bearer $TOKEN"
 
 # Get details of a specific bucket
-curl -X GET "http://localhost:8000/buckets/my-bucket-name"
+curl -X GET "http://localhost:8000/buckets/my-bucket-name" \
+     -H "Authorization: Bearer $TOKEN"
 
 # Create bucket with custom name and region
-curl -X POST "http://localhost:8000/buckets/create?bucket_name=my-custom-bucket&region=us-west-2"
+curl -X POST "http://localhost:8000/buckets/create?bucket_name=my-custom-bucket&region=us-west-2" \
+     -H "Authorization: Bearer $TOKEN"
 
 # Create bucket with a custom folder
-curl -X POST "http://localhost:8000/buckets/create-with-folder?bucket_name=my-custom-bucket&folder_name=my-custom-folder/"
+curl -X POST "http://localhost:8000/buckets/create-with-folder?bucket_name=my-custom-bucket&folder_name=my-custom-folder/" \
+     -H "Authorization: Bearer $TOKEN"
 ```
 
 ## Bucket Name Validation Rules
