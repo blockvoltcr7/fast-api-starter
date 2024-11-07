@@ -1,8 +1,10 @@
 from fastapi import FastAPI, HTTPException
+
 from utils.gcs_utils import GCSClient
 
 app = FastAPI()
-gcs_client = GCSClient()
+gcs_client = GCSClient("rflkt-433802")
+
 
 @app.get("/bucket/create/{bucket_name}")
 async def create_bucket(bucket_name: str):
