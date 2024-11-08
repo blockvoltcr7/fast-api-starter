@@ -1,0 +1,59 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: S3 Bucket API Lambda
+
+Resources:
+  S3BucketAPIRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: S3AccessPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                  - s3:CreateBucket
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:DeleteObject
+                Resource: "*"
+
+  S3BucketAPI:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: lambda_handler.handler
+      Runtime: python3.8
+      Architectures:
+        - x86_64
+      Role: !GetAtt S3BucketAPIRole.Arn
+      Events:
+        ListBucketsApi:
+          Type: HttpApi
+          Properties:
+            Path: /buckets/
+            Method: GET
+        CreateBucketApi:
+          Type: HttpApi
+          Properties:
+            Path: /buckets/create
+            Method: POST
+        CreateBucketWithFolderApi:
+          Type: HttpApi
+          Properties:
+            Path: /buckets/create-with-folder
+            Method: POST
+        GetBucketDetailsApi:
+          Type: HttpApi
+          Properties:
+            Path: /buckets/{bucket_name}
+            Method: GET
