@@ -1,7 +1,8 @@
 import os
-from typing import Any, Optional, Tuple, List
-from dotenv import load_dotenv
+from typing import Any, List, Optional, Tuple
+
 import pg8000.native
+from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -13,7 +14,9 @@ class PostgresClient:
         """Initialize database connection configuration"""
         url = os.getenv("POSTGRES_URL")
         if not url:
-            raise ValueError("Database connection URL not found in environment variables")
+            raise ValueError(
+                "Database connection URL not found in environment variables"
+            )
 
         # Parse connection URL
         url_parts = url.replace("postgres://", "").split("@")
@@ -45,11 +48,11 @@ class PostgresClient:
     def execute_query(self, query: str, params: tuple = ()) -> List[tuple]:
         """
         Execute a SQL query
-        
+
         Args:
             query (str): SQL query string
             params (tuple): Query parameters
-            
+
         Returns:
             List[tuple]: Query results
         """
@@ -57,7 +60,7 @@ class PostgresClient:
             success, error = self.connect()
             if not success:
                 raise Exception(f"Failed to connect to database: {error}")
-                
+
         try:
             return self.conn.run(query, params)
         except Exception as e:
@@ -67,10 +70,10 @@ class PostgresClient:
     def execute_transaction(self, queries: List[Tuple[str, tuple]]) -> bool:
         """
         Execute multiple queries in a transaction
-        
+
         Args:
             queries (List[Tuple[str, tuple]]): List of (query, params) tuples
-            
+
         Returns:
             bool: True if transaction successful
         """
@@ -91,7 +94,7 @@ class PostgresClient:
     def health_check(self) -> bool:
         """
         Check database connection health
-        
+
         Returns:
             bool: True if connection is healthy
         """
@@ -100,7 +103,7 @@ class PostgresClient:
                 success, error = self.connect()
                 if not success:
                     return False
-            
+
             self.conn.run("SELECT 1")
             return True
         except Exception as e:
