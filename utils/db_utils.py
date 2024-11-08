@@ -1,10 +1,15 @@
 import os
+import logging
 from typing import Any, List, Optional, Tuple
 
 import pg8000.native
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 class PostgresClient:
@@ -43,7 +48,9 @@ class PostgresClient:
             self.conn = pg8000.native.Connection(**self.config)
             return True, None
         except Exception as e:
-            return False, f"Error connecting to PostgreSQL: {str(e)}"
+            error_msg = f"Error connecting to PostgreSQL: {str(e)}"
+            logger.error(error_msg)
+            return False, error_msg
 
     def execute_query(self, query: str, params: tuple = ()) -> List[tuple]:
         """
@@ -64,7 +71,7 @@ class PostgresClient:
         try:
             return self.conn.run(query, params)
         except Exception as e:
-            print(f"Query execution error: {e}")
+            logger.error(f"Query execution error: {e}")
             raise
 
     def execute_transaction(self, queries: List[Tuple[str, tuple]]) -> bool:
@@ -88,7 +95,7 @@ class PostgresClient:
                     self.conn.run(query, params)
             return True
         except Exception as e:
-            print(f"Transaction error: {e}")
+            logger.error(f"Transaction error: {e}")
             return False
 
     def health_check(self) -> bool:
@@ -107,7 +114,7 @@ class PostgresClient:
             self.conn.run("SELECT 1")
             return True
         except Exception as e:
-            print(f"Health check failed: {e}")
+            logger.error(f"Health check failed: {e}")
             return False
 
     def close(self):
