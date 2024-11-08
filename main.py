@@ -1,9 +1,11 @@
 import logging
 
+import uvicorn
 from fastapi import FastAPI, HTTPException
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.sql import text
 
+from api.s3_api import app as s3_api
 from utils.db_utils import PostgresClient
 
 # Configure logging
@@ -12,6 +14,9 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI()
 db_client = PostgresClient()
+
+# Include the S3 API router
+app.include_router(s3_api)
 
 
 @app.get("/")
@@ -49,3 +54,7 @@ def database_health_check():
         error_msg = f"Database health check error: {str(e)}"
         logger.error(error_msg)
         raise HTTPException(status_code=500, detail=error_msg)
+
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
