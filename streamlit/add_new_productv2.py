@@ -101,11 +101,13 @@ class PostgresClient:
                     params[col] = str(val)
 
             # Execute the query with prepared parameters
-            self.execute_query(query, params)
+            result = self.execute_query(query, params)
             logger.info(f"Record inserted into {table_name}")
             return True
         except Exception as e:
             logger.error(f"Error inserting record into {table_name}: {e}")
+            logger.error(f"Query: {query}")
+            logger.error(f"Params: {params}")
             return False
 
 
