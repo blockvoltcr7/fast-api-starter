@@ -489,7 +489,7 @@ def list_all_folders_tab():
             if not bucket_name:
                 st.error("Please provide a bucket name.")
             else:
-                response = make_api_request(f"/buckets/{bucket_name}/all-folders")
+                response = make_api_request(f"/buckets/{bucket_name}/folders")
                 if response:
                     st.success("Folders retrieved successfully!")
                     st.json(response)
