@@ -69,9 +69,14 @@ class PostgresClient:
 
         try:
             # Use run method with named parameters
-            return self.conn.run(query, params or {})
+            # Convert named placeholders to pg8000 style
+            converted_params = {f':{k}': v for k, v in (params or {}).items()}
+            return self.conn.run(query, converted_params)
         except Exception as e:
             logger.error(f"Query execution error: {e}")
+            logger.error(f"Original query: {query}")
+            logger.error(f"Original params: {params}")
+            logger.error(f"Converted params: {converted_params}")
             raise
 
     def insert_record(
