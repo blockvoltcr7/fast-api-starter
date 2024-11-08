@@ -36,7 +36,7 @@ class PostgresClient:
             "host": host_port[0],
             "port": int(host_port[1]),
             "database": host_port_db[1].split("?")[0],
-            "ssl": True,
+            "ssl_context": True,
         }
         self.conn = None
 
