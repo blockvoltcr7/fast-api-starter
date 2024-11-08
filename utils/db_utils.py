@@ -1,132 +1,114 @@
 import os
-import ssl
-from contextlib import contextmanager
-from typing import Any, Generator
-
+from typing import Any, Optional, Tuple, List
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, text
-from sqlalchemy.engine import Engine
-from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import sessionmaker
+import pg8000.native
 
 load_dotenv()
 
 
 class PostgresClient:
-    """Utility class for PostgreSQL database operations"""
+    """Utility class for PostgreSQL database operations using pg8000"""
 
     def __init__(self):
-        """Initialize database connection"""
-        # Load environment variables
-        load_dotenv()
-
-        # Get database URL from environment variable
+        """Initialize database connection configuration"""
         url = os.getenv("POSTGRES_URL")
+        if not url:
+            raise ValueError("Database connection URL not found in environment variables")
 
-        # Ensure URL uses correct dialect
-        if url and url.startswith("postgres://"):
-            url = url.replace("postgres://", "postgresql://", 1)
+        # Parse connection URL
+        url_parts = url.replace("postgres://", "").split("@")
+        user_pass = url_parts[0].split(":")
+        host_port_db = url_parts[1].split("/")
+        host_port = host_port_db[0].split(":")
 
-        self.connection_url = url
-        if not self.connection_url:
-            raise ValueError(
-                "Database connection URL not found in environment variables"
-            )
+        self.config = {
+            "user": user_pass[0],
+            "password": user_pass[1],
+            "host": host_port[0],
+            "port": int(host_port[1]),
+            "database": host_port_db[1].split("?")[0],
+            "ssl": True,
+        }
+        self.conn = None
 
-        self.engine = self._create_engine()
-        self.SessionLocal = sessionmaker(
-            autocommit=False, autoflush=False, bind=self.engine
-        )
-
-    def _create_engine(self) -> Engine:
-        """Create SQLAlchemy engine with proper configuration"""
-        ssl_context = ssl.create_default_context()
-        ssl_context.check_hostname = False
-        ssl_context.verify_mode = ssl.CERT_NONE
-
-        return create_engine(
-            self.connection_url,
-            pool_pre_ping=True,
-            pool_size=5,
-            max_overflow=10,
-            pool_timeout=30,
-            pool_recycle=1800,
-            connect_args={"ssl": ssl_context},
-        )
-
-    @contextmanager
-    def get_session(self) -> Generator:
+    def connect(self) -> Tuple[bool, Optional[str]]:
         """
-        Get database session with automatic cleanup
-
-        Yields:
-            Session: Database session
+        Establishes a connection to the PostgreSQL database.
+        Returns: Tuple of (success: bool, error_message: Optional[str])
         """
-        session = self.SessionLocal()
         try:
-            yield session
-            session.commit()
+            self.conn = pg8000.native.Connection(**self.config)
+            return True, None
         except Exception as e:
-            session.rollback()
-            raise e
-        finally:
-            session.close()
+            return False, f"Error connecting to PostgreSQL: {str(e)}"
 
-    def execute_query(self, query: str, params: dict = None) -> list[dict[str, Any]]:
+    def execute_query(self, query: str, params: tuple = ()) -> List[tuple]:
         """
-        Execute a raw SQL query
-
+        Execute a SQL query
+        
         Args:
             query (str): SQL query string
-            params (dict, optional): Query parameters
-
+            params (tuple): Query parameters
+            
         Returns:
-            list[dict[str, Any]]: Query results
+            List[tuple]: Query results
         """
+        if not self.conn:
+            success, error = self.connect()
+            if not success:
+                raise Exception(f"Failed to connect to database: {error}")
+                
         try:
-            with self.get_session() as session:
-                result = session.execute(text(query), params or {})
-                return [dict(row._mapping) for row in result]
-        except SQLAlchemyError as e:
-            print(f"Database error: {e}")
+            return self.conn.run(query, params)
+        except Exception as e:
+            print(f"Query execution error: {e}")
             raise
 
-    def execute_transaction(self, queries: list[tuple[str, dict]]) -> bool:
+    def execute_transaction(self, queries: List[Tuple[str, tuple]]) -> bool:
         """
         Execute multiple queries in a transaction
-
+        
         Args:
-            queries (list[tuple[str, dict]]): List of (query, params) tuples
-
+            queries (List[Tuple[str, tuple]]): List of (query, params) tuples
+            
         Returns:
             bool: True if transaction successful
         """
+        if not self.conn:
+            success, error = self.connect()
+            if not success:
+                return False
+
         try:
-            with self.get_session() as session:
+            with self.conn.transaction():
                 for query, params in queries:
-                    session.execute(text(query), params or {})
-                return True
-        except SQLAlchemyError as e:
+                    self.conn.run(query, params)
+            return True
+        except Exception as e:
             print(f"Transaction error: {e}")
             return False
 
     def health_check(self) -> bool:
         """
-        Check database connection health by querying the products table
-
+        Check database connection health
+        
         Returns:
-            bool: True if connection is healthy and products exist, else False
+            bool: True if connection is healthy
         """
         try:
-            with self.get_session() as session:
-                result = session.execute(text("SELECT * FROM products"))
-                products = result.fetchall()
-                if products:
-                    print("Products found in the database.")
-                    return True
-                else:
-                    print("No products found in the database.")
+            if not self.conn:
+                success, error = self.connect()
+                if not success:
                     return False
-        except SQLAlchemyError as e:
-            print(f"Database error: {e}")
+            
+            self.conn.run("SELECT 1")
+            return True
+        except Exception as e:
+            print(f"Health check failed: {e}")
             return False
+
+    def close(self):
+        """Closes the database connection."""
+        if self.conn:
+            self.conn.close()
+            self.conn = None
