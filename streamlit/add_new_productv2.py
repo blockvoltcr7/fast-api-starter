@@ -60,7 +60,7 @@ class PostgresClient:
             logger.error(error_msg)
             return False, error_msg
 
-    def execute_query(self, query: str, params: dict = None) -> List[tuple]:
+    def execute_query(self, query: str, params: Any = None) -> List[tuple]:
         """Execute a SQL query"""
         if not self.conn:
             success, error = self.connect()
@@ -68,15 +68,16 @@ class PostgresClient:
                 raise Exception(f"Failed to connect to database: {error}")
 
         try:
-            # Use run method with named parameters
-            # Convert named placeholders to pg8000 style
-            converted_params = {f':{k}': v for k, v in (params or {}).items()}
-            return self.conn.run(query, converted_params)
+            if params:
+                # Pass params as a tuple for compatibility with pg8000
+                return self.conn.run(query, params)
+            else:
+                # No parameters
+                return self.conn.run(query)
         except Exception as e:
             logger.error(f"Query execution error: {e}")
             logger.error(f"Original query: {query}")
             logger.error(f"Original params: {params}")
-            logger.error(f"Converted params: {converted_params}")
             raise
 
     def insert_record(
@@ -84,35 +85,23 @@ class PostgresClient:
     ) -> bool:
         """Insert a new record into a table"""
         try:
-            # Prepare the query with named placeholders
+            # Prepare the query with %s placeholders for pg8000
             columns_str = ", ".join(columns)
-            placeholders = ", ".join([f":{col}" for col in columns])
+            placeholders = ", ".join(["%s" for _ in values])
             query = f"INSERT INTO {table_name} ({columns_str}) VALUES ({placeholders})"
 
-            # Create a dictionary of parameters for pg8000 native binding
-            params = {}
-            for col, val in zip(columns, values):
-                # Handle special cases for JSON serialization
-                if isinstance(val, list):
-                    # Convert list to JSON string if needed
-                    params[col] = json.dumps(val)
-                elif isinstance(val, bool):
-                    # Ensure boolean is correctly handled
-                    params[col] = val
-                elif isinstance(val, (int, float, str)):
-                    params[col] = val
-                else:
-                    # Convert other types to string
-                    params[col] = str(val)
+            # Print the full query and parameters for debugging
+            logger.info(f"Executing query: {query}")
+            logger.info(f"With parameters: {values}")
 
-            # Execute the query with prepared parameters
-            result = self.execute_query(query, params)
+            # Execute the query with parameters as a tuple
+            self.execute_query(query, values)  # Pass values as a list
             logger.info(f"Record inserted into {table_name}")
             return True
         except Exception as e:
             logger.error(f"Error inserting record into {table_name}: {e}")
             logger.error(f"Query: {query}")
-            logger.error(f"Params: {params}")
+            logger.error(f"Params: {values}")
             return False
 
 
