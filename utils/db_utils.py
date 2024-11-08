@@ -139,7 +139,7 @@ class PostgresClient:
             # Construct CREATE TABLE query
             columns_str = ", ".join(columns)
             query = f"CREATE TABLE IF NOT EXISTS {table_name} ({columns_str})"
-            
+
             self.execute_query(query)
             logger.info(f"Table {table_name} created successfully")
             return True
@@ -163,7 +163,7 @@ class PostgresClient:
             query = f"DROP TABLE IF EXISTS {table_name}"
             if cascade:
                 query += " CASCADE"
-            
+
             self.execute_query(query)
             logger.info(f"Table {table_name} dropped successfully")
             return True
@@ -171,7 +171,9 @@ class PostgresClient:
             logger.error(f"Error dropping table {table_name}: {e}")
             return False
 
-    def update_table(self, table_name: str, set_clause: str, where_clause: Optional[str] = None) -> int:
+    def update_table(
+        self, table_name: str, set_clause: str, where_clause: Optional[str] = None
+    ) -> int:
         """
         Update records in a table
 
@@ -188,7 +190,7 @@ class PostgresClient:
             query = f"UPDATE {table_name} SET {set_clause}"
             if where_clause:
                 query += f" WHERE {where_clause}"
-            
+
             result = self.execute_query(query)
             logger.info(f"Updated records in {table_name}")
             return len(result)
@@ -196,7 +198,9 @@ class PostgresClient:
             logger.error(f"Error updating table {table_name}: {e}")
             return 0
 
-    def insert_record(self, table_name: str, columns: List[str], values: List[Any]) -> bool:
+    def insert_record(
+        self, table_name: str, columns: List[str], values: List[Any]
+    ) -> bool:
         """
         Insert a new record into a table
 
@@ -213,7 +217,7 @@ class PostgresClient:
             columns_str = ", ".join(columns)
             placeholders = ", ".join(["%s"] * len(values))
             query = f"INSERT INTO {table_name} ({columns_str}) VALUES ({placeholders})"
-            
+
             self.execute_query(query, tuple(values))
             logger.info(f"Record inserted into {table_name}")
             return True
@@ -258,7 +262,7 @@ class PostgresClient:
             query = f"SELECT COUNT(*) FROM {table_name}"
             if where_clause:
                 query += f" WHERE {where_clause}"
-            
+
             result = self.execute_query(query)
             return result[0][0]
         except Exception as e:

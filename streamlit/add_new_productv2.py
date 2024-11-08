@@ -113,27 +113,31 @@ class ProductManager:
     def __init__(self):
         self.db = PostgresClient()
         self.s3_client = boto3.client("s3")
+        self.BUCKET_NAME = "products-rflkt-alpha"
 
-    def create_product_bucket(self, product_type: str) -> str:
-        """Create an S3 bucket for a product type if it doesn't exist."""
-        bucket_name = f"products-{product_type.lower()}-{uuid.uuid4().hex[:8]}"
-        try:
-            self.s3_client.create_bucket(Bucket=bucket_name)
-            return bucket_name
-        except Exception as e:
-            st.error(f"Failed to create bucket: {str(e)}")
-            return None
+    def sanitize_folder_name(self, title: str) -> str:
+        """Sanitize the folder name by removing spaces and special characters."""
+        # Replace multiple spaces with single hyphen and remove special characters
+        sanitized = "-".join(title.lower().split())
+        # Remove any remaining special characters except hyphens
+        sanitized = "".join(c for c in sanitized if c.isalnum() or c == "-")
+        return sanitized
 
     def upload_images_to_s3(
-        self, bucket_name: str, images: List[BytesIO], product_id: str
+        self, images: List[BytesIO], product_title: str
     ) -> List[str]:
         """Upload images to S3 and return their URLs."""
         image_urls = []
+        # Create a sanitized folder name using product title and uuid
+        folder_name = (
+            f"{self.sanitize_folder_name(product_title)}-{uuid.uuid4().hex[:8]}"
+        )
+
         for idx, image in enumerate(images):
             try:
-                key = f"{product_id}/image_{idx}.jpg"
-                self.s3_client.upload_fileobj(image, bucket_name, key)
-                url = f"s3://{bucket_name}/{key}"
+                key = f"{folder_name}/image_{idx}.jpg"
+                self.s3_client.upload_fileobj(image, self.BUCKET_NAME, key)
+                url = f"s3://{self.BUCKET_NAME}/{key}"
                 image_urls.append(url)
             except Exception as e:
                 st.error(f"Failed to upload image {idx}: {str(e)}")
@@ -367,35 +371,28 @@ def main():
                             st.warning("Please upload at least one product image")
                             return
 
-                        bucket_name = product_manager.create_product_bucket(
-                            product_data["type"]
-                        )
-                        if not bucket_name:
-                            st.error("Failed to create storage bucket")
-                            return
-
-                        product_id = str(uuid.uuid4())
+                        # Upload images using product title for folder name
                         image_urls = product_manager.upload_images_to_s3(
-                            bucket_name, st.session_state.product["images"], product_id
+                            st.session_state.product["images"], product_data["title"]
                         )
 
                         if product_manager.insert_product(product_data, image_urls):
                             st.success("Product created successfully!")
                             # Clear session state after successful product creation
                             for key in st.session_state.product.keys():
-                                if key == 'in_stock':
+                                if key == "in_stock":
                                     st.session_state.product[key] = True
-                                elif key == 'price':
+                                elif key == "price":
                                     st.session_state.product[key] = 0.0
-                                elif key == 'color':
-                                    st.session_state.product[key] = 'red'
-                                elif key == 'type':
-                                    st.session_state.product[key] = 'T-shirt'
-                                elif key == 'images':
+                                elif key == "color":
+                                    st.session_state.product[key] = "red"
+                                elif key == "type":
+                                    st.session_state.product[key] = "T-shirt"
+                                elif key == "images":
                                     st.session_state.product[key] = []
                                 else:
-                                    st.session_state.product[key] = ''
-                            
+                                    st.session_state.product[key] = ""
+
                             with st.expander("Product Preview", expanded=True):
                                 st.json({**product_data, "image_urls": image_urls})
                         else:
