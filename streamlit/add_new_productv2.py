@@ -79,10 +79,12 @@ class PostgresClient:
         """Insert a new record into a table"""
         try:
             columns_str = ", ".join(columns)
-            placeholders = ", ".join(["%s"] * len(values))
+            placeholders = ", ".join([f":{col}" for col in columns])
             query = f"INSERT INTO {table_name} ({columns_str}) VALUES ({placeholders})"
 
-            self.execute_query(query, tuple(values))
+            # Create a dictionary of parameters for pg8000 native binding
+            params = dict(zip(columns, values))
+            self.execute_query(query, params)
             logger.info(f"Record inserted into {table_name}")
             return True
         except Exception as e:
