@@ -6,6 +6,7 @@ from sqlalchemy.engine import Engine
 from contextlib import contextmanager
 from typing import Generator, Any
 from dotenv import load_dotenv
+import ssl
 
 load_dotenv()
 
@@ -23,13 +24,19 @@ class PostgresClient:
 
     def _create_engine(self) -> Engine:
         """Create SQLAlchemy engine with proper configuration"""
+        # Create an SSL context to handle SSL connections
+        ssl_context = ssl.create_default_context()
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
+
         return create_engine(
             self.connection_url,
             pool_pre_ping=True,  # Enable connection health checks
             pool_size=5,         # Maximum number of connections in pool
             max_overflow=10,     # Maximum number of connections that can be created beyond pool_size
             pool_timeout=30,     # Timeout for getting connection from pool
-            pool_recycle=1800    # Recycle connections after 30 minutes
+            pool_recycle=1800,   # Recycle connections after 30 minutes
+            connect_args={'ssl': ssl_context}  # Add SSL context for secure connections
         )
 
     @contextmanager
