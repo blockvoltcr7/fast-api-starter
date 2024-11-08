@@ -31,10 +31,11 @@ def init_session_state():
 def handle_image_upload():
     """Handle image upload and preview."""
     uploaded_files = st.file_uploader(
-        "Upload Images",
+        "Upload Product Images",
         accept_multiple_files=True,
         type=["png", "jpg", "jpeg"],
         key="image_uploader",
+        help="Upload one or more product images",
     )
 
     if uploaded_files:
@@ -52,8 +53,10 @@ def handle_image_upload():
             col_idx = idx % 3
             with cols[col_idx]:
                 image = Image.open(uploaded_file)
-                st.image(image, caption=f"Image {idx + 1}")
-                if st.button(f"Remove Image {idx + 1}", key=f"remove_{idx}"):
+                st.image(image, caption=f"Image {idx + 1}", use_column_width=True)
+                if st.button(
+                    "🗑️ Remove", key=f"remove_{idx}", help=f"Remove image {idx + 1}"
+                ):
                     st.session_state.product["images"].pop(idx)
                     st.rerun()
 
@@ -61,47 +64,59 @@ def handle_image_upload():
 def create_product_form():
     """Create and display the product form."""
     with st.form("product_form", clear_on_submit=False):
-        # Title
-        st.text_input(
-            "Title",
-            key="title",
-            value=st.session_state.product["title"],
-            help="Enter the product title",
-        )
+        st.subheader("Product Information")
 
-        # Description
-        st.text_area(
-            "Description",
-            key="description",
-            value=st.session_state.product["description"],
-            help="Enter the product description",
-        )
-
-        # Create two columns for color and type
+        # Product Info Column 1
         col1, col2 = st.columns(2)
 
         with col1:
+            # Title
+            st.text_input(
+                "Title",
+                key="title",
+                value=st.session_state.product["title"],
+                help="Enter the product title",
+                placeholder="Enter product title...",
+            )
+
+            # Description
+            st.text_area(
+                "Description",
+                key="description",
+                value=st.session_state.product["description"],
+                help="Enter the product description",
+                placeholder="Enter product description...",
+                height=150,
+            )
+
+            # Material
+            st.text_input(
+                "Material",
+                key="material",
+                value=st.session_state.product["material"],
+                help="Enter the product material",
+                placeholder="Enter product material...",
+            )
+
+        with col2:
             # Color
             st.selectbox(
                 "Color",
                 options=COLOR_OPTIONS,
                 key="color",
                 index=COLOR_OPTIONS.index(st.session_state.product["color"]),
+                help="Select product color",
             )
 
-        with col2:
             # Type
             st.selectbox(
                 "Type",
                 options=TYPE_OPTIONS,
                 key="type",
                 index=TYPE_OPTIONS.index(st.session_state.product["type"]),
+                help="Select product type",
             )
 
-        # Create two columns for price and material
-        col3, col4 = st.columns(2)
-
-        with col3:
             # Price
             st.number_input(
                 "Price",
@@ -113,22 +128,33 @@ def create_product_form():
                 help="Enter the product price",
             )
 
-        with col4:
-            # Material
-            st.text_input(
-                "Material",
-                key="material",
-                value=st.session_state.product["material"],
-                help="Enter the product material",
+            # In Stock Switch
+            st.toggle(
+                "In Stock",
+                key="in_stock",
+                value=st.session_state.product["in_stock"],
+                help="Toggle product availability",
             )
 
-        # In Stock Switch
-        st.toggle(
-            "In Stock", key="in_stock", value=st.session_state.product["in_stock"]
-        )
+        # Image Upload Section
+        st.subheader("Product Images")
+        handle_image_upload()
 
-        # Submit button
-        submit_button = st.form_submit_button("Create Product")
+        # Action Buttons Container
+        button_col1, button_col2 = st.columns([1, 4])
+
+        with button_col1:
+            cancel_button = st.form_submit_button(
+                "Cancel",
+                type="secondary",
+                use_container_width=True,
+                help="Cancel and reset form",
+            )
+
+        with button_col2:
+            submit_button = st.form_submit_button(
+                "Create Product", type="primary", use_container_width=True
+            )
 
         if submit_button:
             # Update session state with form values
@@ -140,33 +166,15 @@ def create_product_form():
             try:
                 # Simulate API call
                 st.success("Product created successfully!")
-                st.json(st.session_state.product)  # Display the product data
+                # Show product preview
+                with st.expander("Product Preview", expanded=True):
+                    st.json(st.session_state.product)
             except Exception as e:
                 st.error(f"Failed to create product: {str(e)}")
 
-
-def main():
-    st.title("Create New Product")
-
-    # Initialize session state
-    init_session_state()
-
-    # Create main card/container
-    with st.container():
-        st.markdown("### Product Details")
-
-        # Image upload section
-        st.markdown("### Product Images")
-        handle_image_upload()
-
-        # Main form
-        create_product_form()
-
-        # Cancel button (outside form)
-        if st.button("Cancel"):
+        if cancel_button:
             # Reset form
             for key in st.session_state.product.keys():
-                st.session_state.product[key] = ""
                 if key == "in_stock":
                     st.session_state.product[key] = True
                 elif key == "price":
@@ -175,8 +183,40 @@ def main():
                     st.session_state.product[key] = "red"
                 elif key == "type":
                     st.session_state.product[key] = "T-shirt"
+                elif key == "images":
+                    st.session_state.product[key] = []
+                else:
+                    st.session_state.product[key] = ""
+
             st.session_state.image_previews = []
             st.rerun()
+
+
+def main():
+    # Custom styling
+    st.markdown(
+        """
+        <style>
+        .main .block-container {
+            padding-top: 2rem;
+            padding-bottom: 2rem;
+            padding-left: 5rem;
+            padding-right: 5rem;
+        }
+        </style>
+    """,
+        unsafe_allow_html=True,
+    )
+
+    st.title("Create New Product")
+    st.markdown("---")
+
+    # Initialize session state
+    init_session_state()
+
+    # Create main container with form
+    with st.container():
+        create_product_form()
 
 
 if __name__ == "__main__":
