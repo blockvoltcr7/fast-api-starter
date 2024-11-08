@@ -437,6 +437,66 @@ def create_bucket_with_folder_tab():
                 st.json(response)
 
 
+def get_image_urls_tab():
+    st.header("Get Public Image URLs in Folder")
+    with st.form("get_image_urls_form"):
+        bucket_name = st.text_input("Bucket Name")
+        folder_name = st.text_input("Folder Name")
+        submit_button = st.form_submit_button("Get Image URLs")
+
+        if submit_button:
+            if not bucket_name or not folder_name:
+                st.error("Please provide both bucket and folder names.")
+            else:
+                response = make_api_request(
+                    f"/buckets/{bucket_name}/folders/{folder_name}/images-urls"
+                )
+                if response:
+                    st.success("Image URLs retrieved successfully!")
+                    st.json(response)
+                else:
+                    st.error("Failed to retrieve image URLs.")
+
+
+def get_folder_contents_tab():
+    st.header("Get Folder Contents")
+    with st.form("get_folder_contents_form"):
+        bucket_name = st.text_input("Bucket Name")
+        folder_name = st.text_input("Folder Name")
+        submit_button = st.form_submit_button("Get Folder Contents")
+
+        if submit_button:
+            if not bucket_name or not folder_name:
+                st.error("Please provide both bucket and folder names.")
+            else:
+                response = make_api_request(
+                    f"/buckets/{bucket_name}/folders/{folder_name}/contents"
+                )
+                if response:
+                    st.success("Folder contents retrieved successfully!")
+                    st.json(response)
+                else:
+                    st.error("Failed to retrieve folder contents.")
+
+
+def list_all_folders_tab():
+    st.header("List All Folders in Bucket")
+    with st.form("list_all_folders_form"):
+        bucket_name = st.text_input("Bucket Name")
+        submit_button = st.form_submit_button("List Folders")
+
+        if submit_button:
+            if not bucket_name:
+                st.error("Please provide a bucket name.")
+            else:
+                response = make_api_request(f"/buckets/{bucket_name}/all-folders")
+                if response:
+                    st.success("Folders retrieved successfully!")
+                    st.json(response)
+                else:
+                    st.error("Failed to retrieve folders.")
+
+
 def main():
     init_session_state()
 
@@ -527,6 +587,9 @@ def main():
                     "Create Bucket",
                     "Bucket Details",
                     "Create with Folder",
+                    "Get Image URLs",
+                    "Get Folder Contents",
+                    "List All Folders",
                 ]
             )
 
@@ -541,6 +604,15 @@ def main():
 
             with tabs[3]:
                 create_bucket_with_folder_tab()
+
+            with tabs[4]:
+                get_image_urls_tab()
+
+            with tabs[5]:
+                get_folder_contents_tab()
+
+            with tabs[6]:
+                list_all_folders_tab()
 
     else:
         # Show login form if not authenticated
