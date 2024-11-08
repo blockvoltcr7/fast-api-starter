@@ -4,7 +4,7 @@ from typing import Any, List, Tuple
 
 from dotenv import load_dotenv
 from sqlalchemy import MetaData, create_engine, text
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import SQLAlchemyError, OperationalError
 from sqlalchemy.orm import sessionmaker
 
 load_dotenv()
@@ -25,10 +25,24 @@ class PostgresClient:
                 "Database connection URL not found in environment variables"
             )
 
-        # Create SQLAlchemy engine
-        self.engine = create_engine(url)
-        self.Session = sessionmaker(bind=self.engine)
-        self.metadata = MetaData()
+        try:
+            # Create SQLAlchemy engine with additional connection parameters
+            self.engine = create_engine(
+                url, 
+                pool_pre_ping=True,  # Test connection before using
+                pool_recycle=3600,   # Recycle connections after 1 hour
+                echo=False           # Set to True for SQL logging
+            )
+            self.Session = sessionmaker(bind=self.engine)
+            self.metadata = MetaData()
+
+            # Perform an initial connection test
+            with self.engine.connect() as connection:
+                connection.execute(text("SELECT 1"))
+                logger.info("Database connection successful")
+        except (ValueError, OperationalError) as e:
+            logger.error(f"Database connection error: {e}")
+            raise
 
     def execute_query(self, query: str, params: dict = {}) -> List[tuple]:
         """
