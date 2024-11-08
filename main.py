@@ -1,7 +1,7 @@
 import logging
 
 from fastapi import FastAPI, HTTPException
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import OperationalError, SQLAlchemyError
 
 from utils.db_utils import PostgresClient
 
@@ -14,12 +14,12 @@ db_client = PostgresClient()
 
 
 @app.get("/")
-async def hello_world():
+def hello_world():
     return {"message": "AWS - Hello World"}
 
 
 @app.get("/db/health", status_code=200)
-async def database_health_check():
+def database_health_check():
     """
     Endpoint to check database connection health
 
@@ -29,15 +29,22 @@ async def database_health_check():
     try:
         # Attempt to connect to the database
         with db_client.engine.connect() as connection:
-            # Execute a simple query to check the connection
-            connection.execute("SELECT 1")
+            # Use a parameterized query for best practices
+            connection.execute(text("SELECT 1"))
             logger.info("Database health check successful")
             return {"status": "healthy", "message": "Database connection successful"}
-    except SQLAlchemyError as e:
+    except OperationalError as e:
+        # Specific handling for connection-related errors
         error_msg = f"Database connection failed: {str(e)}"
         logger.error(error_msg)
         raise HTTPException(status_code=503, detail=error_msg)
+    except SQLAlchemyError as e:
+        # Catch any other SQLAlchemy-related errors
+        error_msg = f"Database error: {str(e)}"
+        logger.error(error_msg)
+        raise HTTPException(status_code=500, detail=error_msg)
     except Exception as e:
+        # Catch any unexpected exceptions
         error_msg = f"Database health check error: {str(e)}"
         logger.error(error_msg)
-        raise HTTPException(status_code=503, detail=error_msg)
+        raise HTTPException(status_code=500, detail=error_msg)

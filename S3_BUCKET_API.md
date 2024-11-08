@@ -81,6 +81,55 @@ This API provides endpoints for managing S3 buckets using AWS boto3 client.
   - `404 Not Found`: Bucket does not exist
   - `500 Internal Server Error`: Unexpected AWS error
 
+
+## how to deploy fastapi
+
+### Deploying FastAPI
+
+To deploy your FastAPI application, you can use various methods. Below is an example using the `uvicorn` server and Docker.
+
+#### Using Uvicorn
+1. Install Uvicorn:
+   ```bash
+   pip install uvicorn
+   ```
+
+2. Run the FastAPI application:
+   ```bash
+   uvicorn api.s3_api:app --host 0.0.0.0 --port 8000 --reload
+   ```
+
+#### Using Docker
+1. Create a `Dockerfile` in your project directory:
+   ```dockerfile
+   FROM tiangolo/uvicorn-gunicorn-fastapi:python3.8
+
+   COPY ./api /app/api
+   COPY ./auth /app/auth
+   COPY ./streamlit /app/streamlit
+   COPY ./requirements.txt /app/
+
+   RUN pip install --no-cache-dir -r /app/requirements.txt
+
+   EXPOSE 8000
+
+   CMD ["uvicorn", "api.s3_api:app", "--host", "0.0.0.0", "--port", "8000"]
+   ```
+
+2. Build the Docker image:
+   ```bash
+   docker build -t fastapi-s3-app .
+   ```
+
+3. Run the Docker container:
+   ```bash
+   docker run -d --name fastapi-s3-app -p 8000:8000 fastapi-s3-app
+   ```
+
+Now your FastAPI application should be running and accessible at `http://localhost:8000`.
+
+
+
 ## Authentication
 
 The API uses JWT (JSON Web Token) for authentication.
