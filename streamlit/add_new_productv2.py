@@ -60,7 +60,7 @@ class PostgresClient:
             logger.error(error_msg)
             return False, error_msg
 
-    def execute_query(self, query: str, params: tuple = ()) -> List[tuple]:
+    def execute_query(self, query: str, params: dict = None) -> List[tuple]:
         """Execute a SQL query"""
         if not self.conn:
             success, error = self.connect()
@@ -68,7 +68,8 @@ class PostgresClient:
                 raise Exception(f"Failed to connect to database: {error}")
 
         try:
-            return self.conn.run(query, params)
+            # Use run method with named parameters
+            return self.conn.run(query, params or {})
         except Exception as e:
             logger.error(f"Query execution error: {e}")
             raise
@@ -84,7 +85,7 @@ class PostgresClient:
 
             # Create a dictionary of parameters for pg8000 native binding
             params = dict(zip(columns, values))
-            self.execute_query(query, params)
+            result = self.execute_query(query, params)
             logger.info(f"Record inserted into {table_name}")
             return True
         except Exception as e:
