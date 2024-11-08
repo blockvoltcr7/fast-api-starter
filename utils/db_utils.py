@@ -19,7 +19,8 @@ class PostgresClient:
 
     def __init__(self):
         """Initialize database connection configuration"""
-        url = os.getenv("POSTGRES_URL")
+        url = os.getenv("POSTGRES_PSYCOPG2_URL")
+
         if not url:
             raise ValueError(
                 "Database connection URL not found in environment variables"

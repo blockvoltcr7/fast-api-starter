@@ -7,9 +7,11 @@ from io import BytesIO
 from typing import Any, List, Optional, Tuple
 
 import boto3
-import pg8000.native
 from dotenv import load_dotenv
 from PIL import Image
+from sqlalchemy import MetaData, create_engine, text
+from sqlalchemy.exc import OperationalError, SQLAlchemyError
+from sqlalchemy.orm import sessionmaker
 
 import streamlit as st
 
@@ -23,91 +25,38 @@ COLOR_OPTIONS = ["red", "blue", "green", "black", "white"]
 TYPE_OPTIONS = ["T-shirt", "Hoodie", "Long Sleeve", "Other"]
 
 
-class PostgresClient:
-    """Utility class for PostgreSQL database operations using pg8000"""
+class ProductManager:
 
     def __init__(self):
         """Initialize database connection configuration"""
-        url = os.getenv("POSTGRES_URL")
+        url = os.getenv("POSTGRES_PSYCOPG2_URL")
+
         if not url:
             raise ValueError(
                 "Database connection URL not found in environment variables"
             )
 
-        # Parse connection URL
-        url_parts = url.replace("postgres://", "").split("@")
-        user_pass = url_parts[0].split(":")
-        host_port_db = url_parts[1].split("/")
-        host_port = host_port_db[0].split(":")
+        # Create SQLAlchemy engine with connection pool settings
+        self.engine = create_engine(
+            url,
+            pool_pre_ping=True,  # Test connection before using
+            pool_recycle=3600,  # Recycle connections after 1 hour
+            echo=False,  # Set to True for SQL logging
+        )
+        self.Session = sessionmaker(bind=self.engine)
+        self.metadata = MetaData()
 
-        self.config = {
-            "user": user_pass[0],
-            "password": user_pass[1],
-            "host": host_port[0],
-            "port": int(host_port[1]),
-            "database": host_port_db[1].split("?")[0],
-            "ssl_context": True,
-        }
-        self.conn = None
-
-    def connect(self) -> Tuple[bool, Optional[str]]:
-        """Establishes a connection to the PostgreSQL database."""
+        # Perform an initial connection test
         try:
-            self.conn = pg8000.native.Connection(**self.config)
-            return True, None
-        except Exception as e:
-            error_msg = f"Error connecting to PostgreSQL: {str(e)}"
-            logger.error(error_msg)
-            return False, error_msg
-
-    def execute_query(self, query: str, params: Any = None) -> List[tuple]:
-        """Execute a SQL query"""
-        if not self.conn:
-            success, error = self.connect()
-            if not success:
-                raise Exception(f"Failed to connect to database: {error}")
-
-        try:
-            if params:
-                # Pass params as a tuple for compatibility with pg8000
-                return self.conn.run(query, params)
-            else:
-                # No parameters
-                return self.conn.run(query)
-        except Exception as e:
-            logger.error(f"Query execution error: {e}")
-            logger.error(f"Original query: {query}")
-            logger.error(f"Original params: {params}")
+            with self.engine.connect() as connection:
+                connection.execute(text("SELECT 1"))
+                logger.info("Database connection successful")
+        except OperationalError as e:
+            logger.error(f"Database connection error: {e}")
             raise
-
-    def insert_record(
-        self, table_name: str, columns: List[str], values: List[Any]
-    ) -> bool:
-        """Insert a new record into a table"""
-        try:
-            # Prepare the query with %s placeholders for pg8000
-            columns_str = ", ".join(columns)
-            placeholders = ", ".join(["%s" for _ in values])
-            query = f"INSERT INTO {table_name} ({columns_str}) VALUES ({placeholders})"
-
-            # Print the full query and parameters for debugging
-            logger.info(f"Executing query: {query}")
-            logger.info(f"With parameters: {values}")
-
-            # Execute the query with parameters as a tuple
-            self.execute_query(query, values)  # Pass values as a list
-            logger.info(f"Record inserted into {table_name}")
-            return True
-        except Exception as e:
-            logger.error(f"Error inserting record into {table_name}: {e}")
-            logger.error(f"Query: {query}")
-            logger.error(f"Params: {values}")
-            return False
-
-
-class ProductManager:
-    def __init__(self):
-        self.db = PostgresClient()
+        except ValueError as e:
+            logger.error(f"Invalid connection URL: {e}")
+            raise
         self.s3_client = boto3.client("s3")
         self.BUCKET_NAME = "products-rflkt-alpha"
 
@@ -142,30 +91,34 @@ class ProductManager:
     def insert_product(self, product_data: dict, image_urls: List[str]) -> bool:
         """Insert product data into the database."""
         try:
-            columns = [
-                "title",
-                "description",
-                "color",
-                "in_stock",
-                "price",
-                "material",
-                "type",
-                "images",
-            ]
-            values = [
-                product_data["title"],
-                product_data["description"],
-                product_data["color"],
-                product_data["in_stock"],
-                product_data["price"],
-                product_data["material"],
-                product_data["type"],
-                json.dumps(image_urls),
-            ]
+            # Define the SQL insert statement
+            insert_statement = text(
+                """
+                INSERT INTO products (title, description, color, in_stock, price, material, type, images)
+                VALUES (:title, :description, :color, :in_stock, :price, :material, :type, :images)
+            """
+            )
 
-            return self.db.insert_record("products", columns, values)
-        except Exception as e:
+            # Prepare the data to be inserted
+            data = {
+                "title": product_data["title"],
+                "description": product_data["description"],
+                "color": product_data["color"],
+                "in_stock": product_data["in_stock"],
+                "price": product_data["price"],
+                "material": product_data["material"],
+                "type": product_data["type"],
+                "images": json.dumps(image_urls),
+            }
+
+            # Use a session to execute the insert statement
+            with self.Session() as session:
+                session.execute(insert_statement, data)
+                session.commit()
+                return True
+        except SQLAlchemyError as e:
             st.error(f"Failed to insert product into database: {str(e)}")
+            logger.error(f"SQLAlchemy error: {str(e)}")
             return False
 
 

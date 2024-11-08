@@ -2,6 +2,7 @@ import logging
 
 from fastapi import FastAPI, HTTPException
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
+from sqlalchemy.sql import text
 
 from utils.db_utils import PostgresClient
 
