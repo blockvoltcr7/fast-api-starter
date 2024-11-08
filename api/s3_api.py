@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 
 import boto3
 from botocore.exceptions import ClientError
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, APIRouter, File, HTTPException, UploadFile
 from fastapi.security import OAuth2PasswordRequestForm
 
 from auth.jwt_auth import (
@@ -15,7 +15,7 @@ from auth.jwt_auth import (
     get_current_user,
 )
 
-app = FastAPI(title="S3 Bucket API")
+app = APIRouter(prefix="", tags=["s3"])
 
 
 @app.post("/token")
