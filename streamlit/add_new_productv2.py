@@ -79,13 +79,29 @@ class PostgresClient:
     ) -> bool:
         """Insert a new record into a table"""
         try:
+            # Prepare the query with named placeholders
             columns_str = ", ".join(columns)
             placeholders = ", ".join([f":{col}" for col in columns])
             query = f"INSERT INTO {table_name} ({columns_str}) VALUES ({placeholders})"
 
             # Create a dictionary of parameters for pg8000 native binding
-            params = dict(zip(columns, values))
-            result = self.execute_query(query, params)
+            params = {}
+            for col, val in zip(columns, values):
+                # Handle special cases for JSON serialization
+                if isinstance(val, list):
+                    # Convert list to JSON string if needed
+                    params[col] = json.dumps(val)
+                elif isinstance(val, bool):
+                    # Ensure boolean is correctly handled
+                    params[col] = val
+                elif isinstance(val, (int, float, str)):
+                    params[col] = val
+                else:
+                    # Convert other types to string
+                    params[col] = str(val)
+
+            # Execute the query with prepared parameters
+            self.execute_query(query, params)
             logger.info(f"Record inserted into {table_name}")
             return True
         except Exception as e:
@@ -365,10 +381,28 @@ def main():
 
                         if product_manager.insert_product(product_data, image_urls):
                             st.success("Product created successfully!")
+                            # Clear session state after successful product creation
+                            for key in st.session_state.product.keys():
+                                if key == 'in_stock':
+                                    st.session_state.product[key] = True
+                                elif key == 'price':
+                                    st.session_state.product[key] = 0.0
+                                elif key == 'color':
+                                    st.session_state.product[key] = 'red'
+                                elif key == 'type':
+                                    st.session_state.product[key] = 'T-shirt'
+                                elif key == 'images':
+                                    st.session_state.product[key] = []
+                                else:
+                                    st.session_state.product[key] = ''
+                            
                             with st.expander("Product Preview", expanded=True):
                                 st.json({**product_data, "image_urls": image_urls})
                         else:
                             st.error("Failed to create product in database")
+                            # Log the full product data for debugging
+                            logger.error(f"Product data: {product_data}")
+                            logger.error(f"Image URLs: {image_urls}")
 
                     except Exception as e:
                         st.error(f"Error creating product: {str(e)}")
