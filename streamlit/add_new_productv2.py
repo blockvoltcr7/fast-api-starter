@@ -23,10 +23,29 @@ logger = logging.getLogger(__name__)
 # Constants
 COLOR_OPTIONS = ["red", "blue", "green", "black", "white"]
 TYPE_OPTIONS = ["T-shirt", "Hoodie", "Long Sleeve", "Other"]
+CATEGORY_OPTIONS = ["Men", "Women", "Unisex", "Kids", "Accessories"]
+STATUS_OPTIONS = ["active", "draft", "inactive", "archived"]
+CURRENCY_OPTIONS = ["USD", "EUR", "GBP", "CAD", "AUD"]
+
+
+def generate_sku(title: str, category: str, color: str, type: str) -> str:
+    """Generate a unique SKU based on product attributes."""
+    # Get first 3 letters of each attribute (uppercase)
+    title_code = "".join(c for c in title[:3] if c.isalnum()).upper()
+    category_code = "".join(c for c in category[:2] if c.isalnum()).upper()
+    color_code = "".join(c for c in color[:2] if c.isalnum()).upper()
+    type_code = "".join(c for c in type[:2] if c.isalnum()).upper()
+
+    # Generate timestamp-based unique identifier
+    unique_id = datetime.now().strftime("%y%m%d%H%M")
+
+    # Combine all parts
+    sku = f"{category_code}{type_code}{color_code}{title_code}-{unique_id}"
+
+    return sku
 
 
 class ProductManager:
-
     def __init__(self):
         """Initialize database connection configuration"""
         url = os.getenv("POSTGRES_PSYCOPG2_URL")
@@ -36,17 +55,15 @@ class ProductManager:
                 "Database connection URL not found in environment variables"
             )
 
-        # Create SQLAlchemy engine with connection pool settings
         self.engine = create_engine(
             url,
-            pool_pre_ping=True,  # Test connection before using
-            pool_recycle=3600,  # Recycle connections after 1 hour
-            echo=False,  # Set to True for SQL logging
+            pool_pre_ping=True,
+            pool_recycle=3600,
+            echo=False,
         )
         self.Session = sessionmaker(bind=self.engine)
         self.metadata = MetaData()
 
-        # Perform an initial connection test
         try:
             with self.engine.connect() as connection:
                 connection.execute(text("SELECT 1"))
@@ -54,64 +71,75 @@ class ProductManager:
         except OperationalError as e:
             logger.error(f"Database connection error: {e}")
             raise
-        except ValueError as e:
-            logger.error(f"Invalid connection URL: {e}")
-            raise
+
         self.s3_client = boto3.client("s3")
         self.BUCKET_NAME = "products-rflkt-alpha"
 
     def sanitize_folder_name(self, title: str) -> str:
         """Sanitize the folder name by removing spaces and special characters."""
-        # Replace multiple spaces with single hyphen and remove special characters
         sanitized = "-".join(title.lower().split())
-        # Remove any remaining special characters except hyphens
         sanitized = "".join(c for c in sanitized if c.isalnum() or c == "-")
         return sanitized
 
     def upload_images_to_s3(
         self, images: List[BytesIO], product_title: str
-    ) -> List[str]:
-        """Upload images to S3 and return their URLs."""
+    ) -> Tuple[str, List[str]]:
+        """Upload images to S3 and return thumbnail URL and additional image URLs."""
         image_urls = []
-        # Create a sanitized folder name using product title and uuid
         folder_name = (
             f"{self.sanitize_folder_name(product_title)}-{uuid.uuid4().hex[:8]}"
         )
 
+        thumbnail_url = None
         for idx, image in enumerate(images):
             try:
                 key = f"{folder_name}/image_{idx}.jpg"
                 self.s3_client.upload_fileobj(image, self.BUCKET_NAME, key)
                 url = f"s3://{self.BUCKET_NAME}/{key}"
-                image_urls.append(url)
+
+                if idx == 0:  # First image is thumbnail
+                    thumbnail_url = url
+                else:
+                    image_urls.append(url)
             except Exception as e:
                 st.error(f"Failed to upload image {idx}: {str(e)}")
-        return image_urls
 
-    def insert_product(self, product_data: dict, image_urls: List[str]) -> bool:
+        return thumbnail_url, image_urls
+
+    def insert_product(
+        self, product_data: dict, thumbnail_url: str, additional_image_urls: List[str]
+    ) -> bool:
         """Insert product data into the database."""
         try:
-            # Define the SQL insert statement
             insert_statement = text(
                 """
-                INSERT INTO products (title, description, color, in_stock, price, material, type, images)
-                VALUES (:title, :description, :color, :in_stock, :price, :material, :type, :images)
+                INSERT INTO products (
+                    title, description, description_long, category, color, in_stock,
+                    price, price_currency, material, type, sku, quantity_in_stock,
+                    status, thumbnail_image, additional_images
+                )
+                VALUES (
+                    :title, :description, :description_long, :category, :color, :in_stock,
+                    :price, :price_currency, :material, :type, :sku, :quantity_in_stock,
+                    :status, :thumbnail_image, :additional_images
+                )
             """
             )
 
-            # Prepare the data to be inserted
+            sku = generate_sku(
+                product_data["title"],
+                product_data["category"],
+                product_data["color"],
+                product_data["type"],
+            )
+
             data = {
-                "title": product_data["title"],
-                "description": product_data["description"],
-                "color": product_data["color"],
-                "in_stock": product_data["in_stock"],
-                "price": product_data["price"],
-                "material": product_data["material"],
-                "type": product_data["type"],
-                "images": json.dumps(image_urls),
+                **product_data,
+                "sku": sku,
+                "thumbnail_image": thumbnail_url,
+                "additional_images": json.dumps(additional_image_urls),
             }
 
-            # Use a session to execute the insert statement
             with self.Session() as session:
                 session.execute(insert_statement, data)
                 session.commit()
@@ -122,18 +150,22 @@ class ProductManager:
             return False
 
 
-# Rest of your Streamlit UI code remains the same
 def init_session_state():
     """Initialize session state variables."""
     if "product" not in st.session_state:
         st.session_state.product = {
             "title": "",
             "description": "",
+            "description_long": "",
+            "category": "Unisex",
             "color": "red",
             "in_stock": True,
             "price": 0.0,
+            "price_currency": "USD",
             "material": "",
             "type": "T-shirt",
+            "quantity_in_stock": 0,
+            "status": "active",
             "images": [],
         }
     if "image_previews" not in st.session_state:
@@ -143,32 +175,28 @@ def init_session_state():
 def handle_image_upload():
     """Handle image upload and preview."""
     uploaded_files = st.file_uploader(
-        "Upload Product Images",
+        "Upload Product Images (First image will be the thumbnail)",
         accept_multiple_files=True,
         type=["png", "jpg", "jpeg"],
         key="image_uploader",
+        help="The first image uploaded will be used as the product thumbnail",
     )
 
     if uploaded_files:
-        # Clear existing previews
         st.session_state.image_previews = []
         st.session_state.product["images"] = []
 
-        # Create new image preview grid
         cols = st.columns(3)
         for idx, uploaded_file in enumerate(uploaded_files):
-            # Convert to BytesIO for S3 upload
             image_bytes = BytesIO(uploaded_file.read())
             st.session_state.product["images"].append(image_bytes)
 
-            # Reset file pointer for preview
             image_bytes.seek(0)
-
-            # Create preview
             col_idx = idx % 3
             with cols[col_idx]:
                 image = Image.open(image_bytes)
-                st.image(image, caption=f"Image {idx + 1}")
+                caption = "Thumbnail" if idx == 0 else f"Image {idx + 1}"
+                st.image(image, caption=caption)
                 if st.button(f"Remove Image {idx + 1}", key=f"remove_{idx}"):
                     st.session_state.product["images"].pop(idx)
                     st.rerun()
@@ -178,11 +206,9 @@ def create_product_form(product_manager: ProductManager):
     """Create and display the product form."""
     st.subheader("Product Information")
 
-    # Product Info Column 1
     col1, col2 = st.columns(2)
 
     with col1:
-        # Title
         st.text_input(
             "Title",
             key="title",
@@ -191,17 +217,24 @@ def create_product_form(product_manager: ProductManager):
             placeholder="Enter product title...",
         )
 
-        # Description
         st.text_area(
-            "Description",
+            "Short Description",
             key="description",
             value=st.session_state.product["description"],
-            help="Enter the product description",
-            placeholder="Enter product description...",
-            height=150,
+            help="Enter a brief product description",
+            placeholder="Enter short description...",
+            height=100,
         )
 
-        # Material
+        st.text_area(
+            "Long Description",
+            key="description_long",
+            value=st.session_state.product["description_long"],
+            help="Enter a detailed product description",
+            placeholder="Enter detailed description...",
+            height=200,
+        )
+
         st.text_input(
             "Material",
             key="material",
@@ -211,7 +244,14 @@ def create_product_form(product_manager: ProductManager):
         )
 
     with col2:
-        # Color
+        st.selectbox(
+            "Category",
+            options=CATEGORY_OPTIONS,
+            key="category",
+            index=CATEGORY_OPTIONS.index(st.session_state.product["category"]),
+            help="Select product category",
+        )
+
         st.selectbox(
             "Color",
             options=COLOR_OPTIONS,
@@ -220,7 +260,6 @@ def create_product_form(product_manager: ProductManager):
             help="Select product color",
         )
 
-        # Type
         st.selectbox(
             "Type",
             options=TYPE_OPTIONS,
@@ -229,18 +268,46 @@ def create_product_form(product_manager: ProductManager):
             help="Select product type",
         )
 
-        # Price
-        st.number_input(
-            "Price",
-            key="price",
-            value=float(st.session_state.product["price"]),
-            min_value=0.0,
-            step=0.01,
-            format="%.2f",
-            help="Enter the product price",
-        )
+        col2_1, col2_2 = st.columns(2)
+        with col2_1:
+            st.number_input(
+                "Price",
+                key="price",
+                value=float(st.session_state.product["price"]),
+                min_value=0.0,
+                step=0.01,
+                format="%.2f",
+                help="Enter the product price",
+            )
 
-        # In Stock Switch
+            st.number_input(
+                "Quantity in Stock",
+                key="quantity_in_stock",
+                value=int(st.session_state.product["quantity_in_stock"]),
+                min_value=0,
+                step=1,
+                help="Enter the quantity in stock",
+            )
+
+        with col2_2:
+            st.selectbox(
+                "Currency",
+                options=CURRENCY_OPTIONS,
+                key="price_currency",
+                index=CURRENCY_OPTIONS.index(
+                    st.session_state.product["price_currency"]
+                ),
+                help="Select price currency",
+            )
+
+            st.selectbox(
+                "Status",
+                options=STATUS_OPTIONS,
+                key="status",
+                index=STATUS_OPTIONS.index(st.session_state.product["status"]),
+                help="Select product status",
+            )
+
         st.toggle(
             "In Stock",
             key="in_stock",
@@ -253,26 +320,17 @@ def main():
     st.title("Product Management System")
 
     try:
-        # Initialize Product Manager
         product_manager = ProductManager()
-
-        # Initialize session state
         init_session_state()
 
-        # Create main container
         with st.container():
-            # Product Information Form
             create_product_form(product_manager)
-
             st.markdown("---")
 
-            # Image upload section
             st.subheader("Product Images")
             handle_image_upload()
-
             st.markdown("---")
 
-            # Submit and Reset buttons
             col1, col2 = st.columns([1, 4])
 
             with col1:
@@ -282,10 +340,18 @@ def main():
                             st.session_state.product[key] = True
                         elif key == "price":
                             st.session_state.product[key] = 0.0
+                        elif key == "quantity_in_stock":
+                            st.session_state.product[key] = 0
                         elif key == "color":
                             st.session_state.product[key] = "red"
                         elif key == "type":
                             st.session_state.product[key] = "T-shirt"
+                        elif key == "category":
+                            st.session_state.product[key] = "Unisex"
+                        elif key == "status":
+                            st.session_state.product[key] = "active"
+                        elif key == "price_currency":
+                            st.session_state.product[key] = "USD"
                         elif key == "images":
                             st.session_state.product[key] = []
                         else:
@@ -303,15 +369,19 @@ def main():
                             for key in [
                                 "title",
                                 "description",
+                                "description_long",
+                                "category",
                                 "color",
                                 "in_stock",
                                 "price",
+                                "price_currency",
                                 "material",
                                 "type",
+                                "quantity_in_stock",
+                                "status",
                             ]
                         }
 
-                        # Validate required fields
                         if not product_data["title"]:
                             st.error("Please enter a product title")
                             return
@@ -320,38 +390,70 @@ def main():
                             st.warning("Please upload at least one product image")
                             return
 
-                        # Upload images using product title for folder name
-                        image_urls = product_manager.upload_images_to_s3(
-                            st.session_state.product["images"], product_data["title"]
+                        thumbnail_url, additional_image_urls = (
+                            product_manager.upload_images_to_s3(
+                                st.session_state.product["images"],
+                                product_data["title"],
+                            )
                         )
 
-                        if product_manager.insert_product(product_data, image_urls):
+                        if product_manager.insert_product(
+                            product_data, thumbnail_url, additional_image_urls
+                        ):
                             st.success("Product created successfully!")
-                            # Clear session state after successful product creation
+
+                            # Generate and display SKU
+                            sku = generate_sku(
+                                product_data["title"],
+                                product_data["category"],
+                                product_data["color"],
+                                product_data["type"],
+                            )
+                            st.info(f"Generated SKU: {sku}")
+
+                            with st.expander("Product Preview", expanded=True):
+                                preview_data = {
+                                    **product_data,
+                                    "sku": sku,
+                                    "thumbnail_image": thumbnail_url,
+                                    "additional_images": additional_image_urls,
+                                }
+                                st.json(preview_data)
+
+                            # Reset form
                             for key in st.session_state.product.keys():
                                 if key == "in_stock":
                                     st.session_state.product[key] = True
                                 elif key == "price":
                                     st.session_state.product[key] = 0.0
+                                elif key == "quantity_in_stock":
+                                    st.session_state.product[key] = 0
                                 elif key == "color":
                                     st.session_state.product[key] = "red"
                                 elif key == "type":
                                     st.session_state.product[key] = "T-shirt"
+                                elif key == "category":
+                                    st.session_state.product[key] = "Unisex"
+                                elif key == "status":
+                                    st.session_state.product[key] = "active"
+                                elif key == "price_currency":
+                                    st.session_state.product[key] = "USD"
                                 elif key == "images":
                                     st.session_state.product[key] = []
                                 else:
                                     st.session_state.product[key] = ""
-
-                            with st.expander("Product Preview", expanded=True):
-                                st.json({**product_data, "image_urls": image_urls})
                         else:
                             st.error("Failed to create product in database")
                             # Log the full product data for debugging
                             logger.error(f"Product data: {product_data}")
-                            logger.error(f"Image URLs: {image_urls}")
+                            logger.error(f"Thumbnail URL: {thumbnail_url}")
+                            logger.error(
+                                f"Additional image URLs: {additional_image_urls}"
+                            )
 
                     except Exception as e:
                         st.error(f"Error creating product: {str(e)}")
+                        logger.error(f"Error creating product: {str(e)}")
 
     except Exception as e:
         st.error(f"Application Error: {str(e)}")
