@@ -1,5 +1,5 @@
-import os
 import logging
+import os
 from typing import Any, List, Optional, Tuple
 
 import pg8000.native
@@ -18,6 +18,7 @@ class PostgresClient:
     def __init__(self):
         """Initialize database connection configuration"""
         url = os.getenv("POSTGRES_URL")
+        print(url)
         if not url:
             raise ValueError(
                 "Database connection URL not found in environment variables"
