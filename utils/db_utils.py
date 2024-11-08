@@ -123,3 +123,144 @@ class PostgresClient:
         if self.conn:
             self.conn.close()
             self.conn = None
+
+    def create_table(self, table_name: str, columns: List[str]) -> bool:
+        """
+        Create a new table in the database
+
+        Args:
+            table_name (str): Name of the table to create
+            columns (List[str]): List of column definitions
+
+        Returns:
+            bool: True if table creation was successful
+        """
+        try:
+            # Construct CREATE TABLE query
+            columns_str = ", ".join(columns)
+            query = f"CREATE TABLE IF NOT EXISTS {table_name} ({columns_str})"
+            
+            self.execute_query(query)
+            logger.info(f"Table {table_name} created successfully")
+            return True
+        except Exception as e:
+            logger.error(f"Error creating table {table_name}: {e}")
+            return False
+
+    def drop_table(self, table_name: str, cascade: bool = False) -> bool:
+        """
+        Drop an existing table from the database
+
+        Args:
+            table_name (str): Name of the table to drop
+            cascade (bool, optional): Whether to drop dependent objects. Defaults to False.
+
+        Returns:
+            bool: True if table deletion was successful
+        """
+        try:
+            # Construct DROP TABLE query
+            query = f"DROP TABLE IF EXISTS {table_name}"
+            if cascade:
+                query += " CASCADE"
+            
+            self.execute_query(query)
+            logger.info(f"Table {table_name} dropped successfully")
+            return True
+        except Exception as e:
+            logger.error(f"Error dropping table {table_name}: {e}")
+            return False
+
+    def update_table(self, table_name: str, set_clause: str, where_clause: Optional[str] = None) -> int:
+        """
+        Update records in a table
+
+        Args:
+            table_name (str): Name of the table to update
+            set_clause (str): SET clause of the UPDATE statement
+            where_clause (Optional[str], optional): WHERE clause to filter updates. Defaults to None.
+
+        Returns:
+            int: Number of rows affected
+        """
+        try:
+            # Construct UPDATE query
+            query = f"UPDATE {table_name} SET {set_clause}"
+            if where_clause:
+                query += f" WHERE {where_clause}"
+            
+            result = self.execute_query(query)
+            logger.info(f"Updated records in {table_name}")
+            return len(result)
+        except Exception as e:
+            logger.error(f"Error updating table {table_name}: {e}")
+            return 0
+
+    def insert_record(self, table_name: str, columns: List[str], values: List[Any]) -> bool:
+        """
+        Insert a new record into a table
+
+        Args:
+            table_name (str): Name of the table
+            columns (List[str]): List of column names
+            values (List[Any]): List of values to insert
+
+        Returns:
+            bool: True if insertion was successful
+        """
+        try:
+            # Construct INSERT query
+            columns_str = ", ".join(columns)
+            placeholders = ", ".join(["%s"] * len(values))
+            query = f"INSERT INTO {table_name} ({columns_str}) VALUES ({placeholders})"
+            
+            self.execute_query(query, tuple(values))
+            logger.info(f"Record inserted into {table_name}")
+            return True
+        except Exception as e:
+            logger.error(f"Error inserting record into {table_name}: {e}")
+            return False
+
+    def get_table_info(self, table_name: str) -> List[Tuple[str, str]]:
+        """
+        Retrieve column information for a given table
+
+        Args:
+            table_name (str): Name of the table
+
+        Returns:
+            List[Tuple[str, str]]: List of (column_name, data_type) tuples
+        """
+        try:
+            query = """
+            SELECT column_name, data_type 
+            FROM information_schema.columns 
+            WHERE table_name = %s
+            """
+            result = self.execute_query(query, (table_name,))
+            return result
+        except Exception as e:
+            logger.error(f"Error retrieving table info for {table_name}: {e}")
+            return []
+
+    def count_records(self, table_name: str, where_clause: Optional[str] = None) -> int:
+        """
+        Count the number of records in a table
+
+        Args:
+            table_name (str): Name of the table
+            where_clause (Optional[str], optional): WHERE clause to filter counting. Defaults to None.
+
+        Returns:
+            int: Number of records
+        """
+        try:
+            query = f"SELECT COUNT(*) FROM {table_name}"
+            if where_clause:
+                query += f" WHERE {where_clause}"
+            
+            result = self.execute_query(query)
+            return result[0][0]
+        except Exception as e:
+            logger.error(f"Error counting records in {table_name}: {e}")
+            return 0
