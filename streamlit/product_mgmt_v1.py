@@ -195,28 +195,22 @@ class ProductManager:
             # Convert image to PIL Image
             image = Image.open(image_file)
 
-            # Convert to RGB if necessary (handles PNG with transparency)
-            if image.mode in ("RGBA", "LA") or (
-                image.mode == "P" and "transparency" in image.info
-            ):
-                background = Image.new("RGB", image.size, (255, 255, 255))
-                if image.mode == "PA":
-                    image = image.convert("RGBA")
-                background.paste(image, mask=image.split()[-1])
-                image = background
+            # Ensure image is in RGBA mode to handle transparency
+            if image.mode != "RGBA":
+                image = image.convert("RGBA")
 
             # Create a new BytesIO object for the processed image
             processed_image = BytesIO()
 
-            # Save as JPEG with quality setting
-            image.save(processed_image, format="JPEG", quality=85, optimize=True)
+            # Save as PNG to preserve transparency
+            image.save(processed_image, format="PNG", optimize=True)
 
             # Reset buffer position after saving
             processed_image.seek(0)
 
-            # Upload to S3 without ACL
+            # Upload to S3 with appropriate content type
             self.s3_client.upload_fileobj(
-                processed_image, bucket, key, ExtraArgs={"ContentType": "image/jpeg"}
+                processed_image, bucket, key, ExtraArgs={"ContentType": "image/png"}
             )
 
             # Get the region
@@ -256,7 +250,7 @@ class ProductManager:
         thumbnail_url = None
         if thumbnail:
             try:
-                thumbnail_name = f"{self.sanitize_folder_name(product_title)}_{unique_id}_thumbnail.jpg"
+                thumbnail_name = f"{self.sanitize_folder_name(product_title)}_{unique_id}_thumbnail.png"
                 key = f"{folder_name}/{thumbnail_name}"
                 thumbnail_url = self.process_and_upload_image(
                     thumbnail, self.BUCKET_NAME, key
@@ -271,7 +265,7 @@ class ProductManager:
         if main_image:
             try:
                 main_image_name = (
-                    f"{self.sanitize_folder_name(product_title)}_{unique_id}_main.jpg"
+                    f"{self.sanitize_folder_name(product_title)}_{unique_id}_main.png"
                 )
                 key = f"{folder_name}/{main_image_name}"
                 main_image_url = self.process_and_upload_image(
@@ -285,7 +279,7 @@ class ProductManager:
         # Upload additional images
         for idx, image in enumerate(additional_images):
             try:
-                image_name = f"{self.sanitize_folder_name(product_title)}_{unique_id}_additional_image_{idx + 1}.jpg"
+                image_name = f"{self.sanitize_folder_name(product_title)}_{unique_id}_additional_image_{idx + 1}.png"
                 key = f"{folder_name}/{image_name}"
                 url = self.process_and_upload_image(image, self.BUCKET_NAME, key)
                 image_urls.append(url)
