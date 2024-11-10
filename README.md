@@ -19,7 +19,7 @@ aws configure
 ```
 
 ## Deployment
-
+Use `uvicorn <module_name>:app --reload` to run the FastAPI app.
 ### Local Testing
 ```bash
 sam local start-api

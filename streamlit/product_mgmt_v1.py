@@ -62,10 +62,18 @@ def init_session_state():
             "type": "T-shirt",
             "quantity_in_stock": 0,
             "status": "active",
-            "images": [],
+            "thumbnail": None,
+            "main_image": None,
+            "additional_images": [],
         }
     if "image_previews" not in st.session_state:
         st.session_state.image_previews = []
+    if "product_creation_result" not in st.session_state:
+        st.session_state.product_creation_result = None
+    if "last_created_sku" not in st.session_state:
+        st.session_state.last_created_sku = None
+    if "last_created_preview" not in st.session_state:
+        st.session_state.last_created_preview = None
 
 
 # Authentication Functions
@@ -166,32 +174,134 @@ class ProductManager:
         sanitized = "".join(c for c in sanitized if c.isalnum() or c == "-")
         return sanitized
 
+    def process_and_upload_image(
+        self, image_file: BytesIO, bucket: str, key: str
+    ) -> str:
+        """
+        Process and upload an image to S3, ensuring proper format and buffer handling.
+
+        Args:
+            image_file: BytesIO object containing the image
+            bucket: S3 bucket name
+            key: S3 object key (path)
+
+        Returns:
+            str: The public URL of the uploaded image
+        """
+        try:
+            # Reset buffer position
+            image_file.seek(0)
+
+            # Convert image to PIL Image
+            image = Image.open(image_file)
+
+            # Convert to RGB if necessary (handles PNG with transparency)
+            if image.mode in ("RGBA", "LA") or (
+                image.mode == "P" and "transparency" in image.info
+            ):
+                background = Image.new("RGB", image.size, (255, 255, 255))
+                if image.mode == "PA":
+                    image = image.convert("RGBA")
+                background.paste(image, mask=image.split()[-1])
+                image = background
+
+            # Create a new BytesIO object for the processed image
+            processed_image = BytesIO()
+
+            # Save as JPEG with quality setting
+            image.save(processed_image, format="JPEG", quality=85, optimize=True)
+
+            # Reset buffer position after saving
+            processed_image.seek(0)
+
+            # Upload to S3 without ACL
+            self.s3_client.upload_fileobj(
+                processed_image, bucket, key, ExtraArgs={"ContentType": "image/jpeg"}
+            )
+
+            # Get the region
+            region = os.getenv("AWS_REGION", "us-east-1")
+
+            # Return the public URL
+            return f"https://{bucket}.s3.{region}.amazonaws.com/{key}"
+
+        except Exception as e:
+            logger.error(f"Error processing and uploading image: {str(e)}")
+            raise
+
     def upload_images_to_s3(
-        self, images: List[BytesIO], product_title: str
-    ) -> Tuple[str, List[str]]:
+        self,
+        thumbnail: BytesIO,
+        main_image: BytesIO,
+        additional_images: List[BytesIO],
+        product_title: str,
+    ) -> Tuple[str, str, List[str], str]:
+        """
+        Upload product images to S3 with proper image processing.
+
+        Args:
+            thumbnail: BytesIO object containing the thumbnail image
+            main_image: BytesIO object containing the main image
+            additional_images: List of BytesIO objects containing additional images
+            product_title: Title of the product
+
+        Returns:
+            Tuple containing URLs for thumbnail, main image, additional images, and unique ID
+        """
         image_urls = []
-        folder_name = (
-            f"{self.sanitize_folder_name(product_title)}-{uuid.uuid4().hex[:8]}"
-        )
+        unique_id = uuid.uuid4().hex[:8]
+        folder_name = f"{self.sanitize_folder_name(product_title)}-{unique_id}"
 
+        # Upload thumbnail
         thumbnail_url = None
-        for idx, image in enumerate(images):
+        if thumbnail:
             try:
-                key = f"{folder_name}/image_{idx}.jpg"
-                self.s3_client.upload_fileobj(image, self.BUCKET_NAME, key)
-                url = f"s3://{self.BUCKET_NAME}/{key}"
-
-                if idx == 0:
-                    thumbnail_url = url
-                else:
-                    image_urls.append(url)
+                thumbnail_name = f"{self.sanitize_folder_name(product_title)}_{unique_id}_thumbnail.jpg"
+                key = f"{folder_name}/{thumbnail_name}"
+                thumbnail_url = self.process_and_upload_image(
+                    thumbnail, self.BUCKET_NAME, key
+                )
             except Exception as e:
-                st.error(f"Failed to upload image {idx}: {str(e)}")
+                logger.error(f"Failed to upload thumbnail: {str(e)}")
+                st.error(f"Failed to upload thumbnail: {str(e)}")
+                return None, None, [], unique_id
 
-        return thumbnail_url, image_urls
+        # Upload main image
+        main_image_url = None
+        if main_image:
+            try:
+                main_image_name = (
+                    f"{self.sanitize_folder_name(product_title)}_{unique_id}_main.jpg"
+                )
+                key = f"{folder_name}/{main_image_name}"
+                main_image_url = self.process_and_upload_image(
+                    main_image, self.BUCKET_NAME, key
+                )
+            except Exception as e:
+                logger.error(f"Failed to upload main image: {str(e)}")
+                st.error(f"Failed to upload main image: {str(e)}")
+                return thumbnail_url, None, [], unique_id
+
+        # Upload additional images
+        for idx, image in enumerate(additional_images):
+            try:
+                image_name = f"{self.sanitize_folder_name(product_title)}_{unique_id}_additional_image_{idx + 1}.jpg"
+                key = f"{folder_name}/{image_name}"
+                url = self.process_and_upload_image(image, self.BUCKET_NAME, key)
+                image_urls.append(url)
+            except Exception as e:
+                logger.error(f"Failed to upload additional image {idx + 1}: {str(e)}")
+                st.error(f"Failed to upload additional image {idx + 1}: {str(e)}")
+
+        return thumbnail_url, main_image_url, image_urls, unique_id
 
     def insert_product(
-        self, product_data: dict, thumbnail_url: str, additional_image_urls: List[str]
+        self,
+        product_data: dict,
+        thumbnail_url: str,
+        main_image_url: str,
+        additional_image_urls: List[str],
+        unique_id: str,
     ) -> bool:
         try:
             insert_statement = text(
@@ -199,12 +309,12 @@ class ProductManager:
                 INSERT INTO products (
                     title, description, description_long, category, color, in_stock,
                     price, price_currency, material, type, sku, quantity_in_stock,
-                    status, thumbnail_image, additional_images
+                    status, thumbnail_image, main_image, additional_images, unique_id
                 )
                 VALUES (
                     :title, :description, :description_long, :category, :color, :in_stock,
                     :price, :price_currency, :material, :type, :sku, :quantity_in_stock,
-                    :status, :thumbnail_image, :additional_images
+                    :status, :thumbnail_image, :main_image, :additional_images, :unique_id
                 )
             """
             )
@@ -220,7 +330,9 @@ class ProductManager:
                 **product_data,
                 "sku": sku,
                 "thumbnail_image": thumbnail_url,
+                "main_image": main_image_url,
                 "additional_images": json.dumps(additional_image_urls),
+                "unique_id": unique_id,
             }
 
             with self.Session() as session:
@@ -240,6 +352,65 @@ class ProductManager:
         type_code = "".join(c for c in type[:2] if c.isalnum()).upper()
         unique_id = datetime.now().strftime("%y%m%d%H%M")
         return f"{category_code}{type_code}{color_code}{title_code}-{unique_id}"
+
+    def delete_product(self, folder_name: str) -> Tuple[bool, str]:
+        """
+        Delete a product and its folder from both database and S3.
+        folder_name format example: 'strength-and-honor-7a5671cb'
+        Returns a tuple of (success: bool, message: str)
+        """
+        try:
+            # First, get the product details using the unique_id from folder name
+            unique_id = folder_name.split("-")[
+                -1
+            ]  # Get the last part after the last dash
+
+            with self.Session() as session:
+                # Delete from database using unique_id
+                delete_stmt = text("DELETE FROM products WHERE unique_id = :unique_id")
+                result = session.execute(delete_stmt, {"unique_id": unique_id})
+                session.commit()
+
+                if result.rowcount == 0:
+                    return (
+                        False,
+                        f"Product with folder name {folder_name} not found in database",
+                    )
+
+                # Delete folder from S3
+                try:
+                    # List all objects in the folder
+                    paginator = self.s3_client.get_paginator("list_objects_v2")
+                    pages = paginator.paginate(
+                        Bucket=self.BUCKET_NAME, Prefix=f"{folder_name}/"
+                    )
+
+                    delete_keys = []
+                    for page in pages:
+                        if "Contents" in page:
+                            for obj in page["Contents"]:
+                                delete_keys.append({"Key": obj["Key"]})
+
+                    if delete_keys:
+                        self.s3_client.delete_objects(
+                            Bucket=self.BUCKET_NAME, Delete={"Objects": delete_keys}
+                        )
+
+                    return True, f"Product folder {folder_name} deleted successfully"
+
+                except Exception as e:
+                    logger.error(f"Error deleting S3 folder: {str(e)}")
+                    return (
+                        True,
+                        f"Product deleted from database, but S3 folder deletion failed: {str(e)}",
+                    )
+
+        except SQLAlchemyError as e:
+            logger.error(f"Database error while deleting product: {str(e)}")
+            return False, f"Database error: {str(e)}"
+        except Exception as e:
+            logger.error(f"Error deleting product: {str(e)}")
+            return False, f"Error: {str(e)}"
 
 
 # Product Management UI
@@ -347,30 +518,79 @@ def create_product_form(product_manager: ProductManager):
 
 
 def handle_image_upload():
-    uploaded_files = st.file_uploader(
-        "Upload Product Images (First image will be the thumbnail)",
-        accept_multiple_files=True,
+    # Thumbnail Image Upload
+    st.subheader("Thumbnail Image")
+    st.caption(
+        "This image will be used as a small preview (recommended size: 150x150px)"
+    )
+    thumbnail_file = st.file_uploader(
+        "Upload Thumbnail Image",
         type=["png", "jpg", "jpeg"],
-        key="image_uploader",
+        key="thumbnail_uploader",
     )
 
-    if uploaded_files:
-        st.session_state.image_previews = []
-        st.session_state.product["images"] = []
+    # Display thumbnail preview
+    if thumbnail_file:
+        thumbnail_bytes = BytesIO(thumbnail_file.read())
+        st.session_state.product["thumbnail"] = thumbnail_bytes
+
+        thumbnail_bytes.seek(0)
+        st.image(Image.open(thumbnail_bytes), caption="Thumbnail Preview", width=150)
+        if st.button("Remove Thumbnail"):
+            st.session_state.product["thumbnail"] = None
+            st.rerun()
+
+    st.markdown("---")
+
+    # Main Image Upload
+    st.subheader("Main Product Image")
+    st.caption(
+        "This image will be the primary product image (recommended size: 800x800px)"
+    )
+    main_image_file = st.file_uploader(
+        "Upload Main Product Image",
+        type=["png", "jpg", "jpeg"],
+        key="main_image_uploader",
+    )
+
+    # Display main image preview
+    if main_image_file:
+        main_image_bytes = BytesIO(main_image_file.read())
+        st.session_state.product["main_image"] = main_image_bytes
+
+        main_image_bytes.seek(0)
+        st.image(Image.open(main_image_bytes), caption="Main Image Preview", width=400)
+        if st.button("Remove Main Image"):
+            st.session_state.product["main_image"] = None
+            st.rerun()
+
+    st.markdown("---")
+
+    # Additional Images Upload
+    st.subheader("Additional Images")
+    st.caption("Upload additional product images to show different angles or details")
+    additional_files = st.file_uploader(
+        "Upload Additional Product Images",
+        accept_multiple_files=True,
+        type=["png", "jpg", "jpeg"],
+        key="additional_uploader",
+    )
+
+    if additional_files:
+        st.session_state.product["additional_images"] = []
 
         cols = st.columns(3)
-        for idx, uploaded_file in enumerate(uploaded_files):
+        for idx, uploaded_file in enumerate(additional_files):
             image_bytes = BytesIO(uploaded_file.read())
-            st.session_state.product["images"].append(image_bytes)
+            st.session_state.product["additional_images"].append(image_bytes)
 
             image_bytes.seek(0)
             col_idx = idx % 3
             with cols[col_idx]:
                 image = Image.open(image_bytes)
-                caption = "Thumbnail" if idx == 0 else f"Image {idx + 1}"
-                st.image(image, caption=caption)
+                st.image(image, caption=f"Additional Image {idx + 1}")
                 if st.button(f"Remove Image {idx + 1}", key=f"remove_{idx}"):
-                    st.session_state.product["images"].pop(idx)
+                    st.session_state.product["additional_images"].pop(idx)
                     st.rerun()
 
 
@@ -497,6 +717,53 @@ def list_all_folders_tab():
                     st.error("Failed to retrieve folders.")
 
 
+# Add this new function after the other tab functions
+def delete_product_tab():
+    st.header("Delete Product")
+    try:
+        product_manager = ProductManager()
+
+        # Add a key to session state to track deletion success
+        if "delete_success" not in st.session_state:
+            st.session_state.delete_success = False
+
+        with st.form("delete_product_form", clear_on_submit=True):
+            folder_name = st.text_input(
+                "Product Folder Name",
+                help="Enter the folder name (e.g., strength-and-honor-7a5671cb)",
+            )
+            st.caption(
+                "The folder name can be found in the product's image URLs or from the product preview"
+            )
+
+            confirm = st.checkbox("I confirm that I want to delete this product")
+            submit_button = st.form_submit_button("Delete Product")
+
+            if submit_button:
+                if not folder_name:
+                    st.error("Please provide a product folder name.")
+                elif not confirm:
+                    st.error(
+                        "Please confirm the deletion by checking the confirmation box."
+                    )
+                else:
+                    success, message = product_manager.delete_product(folder_name)
+                    if success:
+                        st.session_state.delete_success = True
+                        st.success(message)
+                        # Force a rerun to clear the form
+                        st.rerun()
+                    else:
+                        st.error(message)
+
+        # Clear the success flag after rerun
+        if st.session_state.delete_success:
+            st.session_state.delete_success = False
+
+    except Exception as e:
+        st.error(f"Error initializing product manager: {str(e)}")
+
+
 def main():
     init_session_state()
 
@@ -538,12 +805,14 @@ def main():
                     handle_image_upload()
                     st.markdown("---")
 
+                    # Action Buttons and Results Section
                     col1, col2 = st.columns([1, 4])
 
                     with col1:
                         if st.button(
                             "Reset Form", type="secondary", use_container_width=True
                         ):
+                            # Clear all form data
                             for key in st.session_state.product.keys():
                                 if key == "in_stock":
                                     st.session_state.product[key] = True
@@ -565,6 +834,12 @@ def main():
                                     st.session_state.product[key] = []
                                 else:
                                     st.session_state.product[key] = ""
+
+                            # Clear results
+                            st.session_state.product_creation_result = None
+                            st.session_state.last_created_sku = None
+                            st.session_state.last_created_preview = None
+
                             st.session_state.image_previews = []
                             st.rerun()
 
@@ -574,6 +849,29 @@ def main():
                         ):
                             if handle_product_creation(product_manager):
                                 st.rerun()
+
+                # Results Section
+                if (
+                    st.session_state.product_creation_result
+                    or st.session_state.last_created_sku
+                    or st.session_state.last_created_preview
+                ):
+
+                    st.markdown("---")
+                    st.subheader("Last Created Product Results")
+
+                    # Display success/error message
+                    if st.session_state.product_creation_result:
+                        st.success(st.session_state.product_creation_result)
+
+                    # Display SKU
+                    if st.session_state.last_created_sku:
+                        st.info(f"Generated SKU: {st.session_state.last_created_sku}")
+
+                    # Display Preview
+                    if st.session_state.last_created_preview:
+                        with st.expander("Product Preview", expanded=True):
+                            st.json(st.session_state.last_created_preview)
 
             except Exception as e:
                 st.error(f"Product Management Error: {str(e)}")
@@ -590,6 +888,7 @@ def main():
                     "Get Image URLs",
                     "Get Folder Contents",
                     "List All Folders",
+                    "Delete Product",
                 ]
             )
 
@@ -613,6 +912,9 @@ def main():
 
             with tabs[6]:
                 list_all_folders_tab()
+
+            with tabs[7]:
+                delete_product_tab()
 
     else:
         # Show login form if not authenticated
@@ -640,46 +942,66 @@ def handle_product_creation(product_manager: ProductManager) -> bool:
         }
 
         if not product_data["title"]:
-            st.error("Please enter a product title")
+            st.session_state.product_creation_result = "Please enter a product title"
             return False
 
-        if not st.session_state.product["images"]:
-            st.warning("Please upload at least one product image")
+        if (
+            "thumbnail" not in st.session_state.product
+            or st.session_state.product["thumbnail"] is None
+        ):
+            st.session_state.product_creation_result = "Please upload a thumbnail image"
             return False
 
-        thumbnail_url, additional_image_urls = product_manager.upload_images_to_s3(
-            st.session_state.product["images"], product_data["title"]
+        thumbnail_url, main_image_url, additional_image_urls, unique_id = (
+            product_manager.upload_images_to_s3(
+                st.session_state.product["thumbnail"],
+                st.session_state.product["main_image"],
+                st.session_state.product.get("additional_images", []),
+                product_data["title"],
+            )
+        )
+
+        if thumbnail_url is None:
+            st.session_state.product_creation_result = (
+                "Failed to upload thumbnail image"
+            )
+            return False
+
+        # Generate SKU before insert
+        sku = product_manager.generate_sku(
+            product_data["title"],
+            product_data["category"],
+            product_data["color"],
+            product_data["type"],
         )
 
         if product_manager.insert_product(
-            product_data, thumbnail_url, additional_image_urls
+            product_data,
+            thumbnail_url,
+            main_image_url,
+            additional_image_urls,
+            unique_id,
         ):
-            st.success("Product created successfully!")
-
-            # Generate and display SKU
-            sku = product_manager.generate_sku(
-                product_data["title"],
-                product_data["category"],
-                product_data["color"],
-                product_data["type"],
-            )
-            st.info(f"Generated SKU: {sku}")
-
-            with st.expander("Product Preview", expanded=True):
-                preview_data = {
-                    **product_data,
-                    "sku": sku,
-                    "thumbnail_image": thumbnail_url,
-                    "additional_images": additional_image_urls,
-                }
-                st.json(preview_data)
+            # Store results in session state
+            st.session_state.product_creation_result = "Product created successfully!"
+            st.session_state.last_created_sku = sku
+            st.session_state.last_created_preview = {
+                **product_data,
+                "sku": sku,
+                "thumbnail_image": thumbnail_url,
+                "main_image": main_image_url,
+                "additional_images": additional_image_urls,
+                "unique_id": unique_id,
+            }
             return True
 
-        st.error("Failed to create product in database")
+        st.session_state.product_creation_result = (
+            "Failed to create product in database"
+        )
         return False
 
     except Exception as e:
-        st.error(f"Error creating product: {str(e)}")
+        st.session_state.product_creation_result = f"Error creating product: {str(e)}"
         logger.error(f"Error creating product: {str(e)}")
         return False
 
